@@ -1,70 +1,81 @@
 // This is a simplified version of the points-in-polygon logic
 // In a real implementation, you would load the actual opportunity zone polygons
 
-interface Point {
-  lat: number
-  lon: number
-}
+import booleanPointInPolygon from '@turf/boolean-point-in-polygon';
+import { point } from '@turf/helpers';
 
-interface Polygon {
-  id: string
-  coordinates: Point[]
-}
+// Cache for loaded polygons to avoid fetching repeatedly
+let opportunityZonePolygons: any = null;
 
-// Mock data - in a real implementation, this would be loaded from your polygon data files
-const MOCK_OPPORTUNITY_ZONES: Polygon[] = [
-  {
-    id: "oz-001",
-    coordinates: [
-      { lat: 40.7128, lon: -74.006 }, // NYC area
-      { lat: 40.73, lon: -74.006 },
-      { lat: 40.73, lon: -73.98 },
-      { lat: 40.7128, lon: -73.98 },
-    ],
-  },
-  {
-    id: "oz-002",
-    coordinates: [
-      { lat: 34.0522, lon: -118.2437 }, // LA area
-      { lat: 34.1, lon: -118.2437 },
-      { lat: 34.1, lon: -118.2 },
-      { lat: 34.0522, lon: -118.2 },
-    ],
-  },
-  // Add more mock polygons as needed
-]
-
-// Ray casting algorithm to determine if a point is inside a polygon
-function isPointInPolygon(point: { lat: number; lon: number }, polygon: Polygon): boolean {
-  const { lat, lon } = point
-  let inside = false
-
-  for (let i = 0, j = polygon.coordinates.length - 1; i < polygon.coordinates.length; j = i++) {
-    const xi = polygon.coordinates[i].lon
-    const yi = polygon.coordinates[i].lat
-    const xj = polygon.coordinates[j].lon
-    const yj = polygon.coordinates[j].lat
-
-    const intersect = yi > lat !== yj > lat && lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi
-
-    if (intersect) inside = !inside
+async function loadOpportunityZones(): Promise<any> {
+  console.log("🔍 Attempting to load opportunity zones data");
+  
+  if (opportunityZonePolygons) {
+    console.log("✅ Using cached opportunity zones data");
+    return opportunityZonePolygons;
   }
-
-  return inside
+  
+  const url = process.env.OPPORTUNITY_ZONES_URL;
+  
+  if (!url) {
+    console.error("❌ Opportunity zones URL not configured in environment variables");
+    throw new Error('Opportunity zones URL not configured');
+  }
+  
+  console.log(`🔗 Fetching opportunity zones from: ${url}`);
+  
+  try {
+    const response = await fetch(url);
+    
+    if (!response.ok) {
+      console.error(`❌ Failed to fetch opportunity zones: ${response.status} ${response.statusText}`);
+      throw new Error(`Failed to load opportunity zone data: ${response.status} ${response.statusText}`);
+    }
+    
+    console.log("📥 Parsing GeoJSON response");
+    opportunityZonePolygons = await response.json();
+    
+    // Log basic info about the loaded data
+    if (opportunityZonePolygons && opportunityZonePolygons.features) {
+      console.log(`📊 Loaded ${opportunityZonePolygons.features.length} opportunity zone features`);
+    }
+    
+    return opportunityZonePolygons;
+  } catch (error) {
+    console.error("❌ Error loading opportunity zones:", error);
+    throw error;
+  }
 }
 
 export async function checkPointInPolygon(lat: number, lon: number): Promise<boolean> {
-  // In a real implementation, you would:
-  // 1. Load the opportunity zone polygons from your data source
-  // 2. Use a spatial library to efficiently check if the point is in any polygon
-
-  // For this mock implementation, we'll check against our sample polygons
-  for (const polygon of MOCK_OPPORTUNITY_ZONES) {
-    if (isPointInPolygon({ lat, lon }, polygon)) {
-      return true
+  console.log(`🔍 Checking if point (${lat}, ${lon}) is in any opportunity zone`);
+  
+  try {
+    const geoJson = await loadOpportunityZones();
+    const pt = point([lon, lat]); // GeoJSON uses [longitude, latitude] order
+    
+    console.log(`🧮 Checking point against ${geoJson.features.length} opportunity zone polygons`);
+    
+    // Check each feature in the GeoJSON
+    for (let i = 0; i < geoJson.features.length; i++) {
+      const feature = geoJson.features[i];
+      
+      // Optional: Log progress every 100 features to avoid console spam
+      if (i % 100 === 0) {
+        console.log(`🔄 Checked ${i}/${geoJson.features.length} polygons`);
+      }
+      
+      if (booleanPointInPolygon(pt, feature.geometry)) {
+        console.log(`✅ Point is inside opportunity zone! Feature ID: ${feature.id || feature.properties?.GEOID || i}`);
+        return true;
+      }
     }
+    
+    console.log("❌ Point is not in any opportunity zone");
+    return false;
+  } catch (error) {
+    console.error("❌ Error checking point in polygon:", error);
+    throw error; // Let the caller handle the error
   }
-
-  return false
 }
 
