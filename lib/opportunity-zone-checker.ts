@@ -4,78 +4,128 @@
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon';
 import { point } from '@turf/helpers';
 
+// Type for the log function
+type LogFn = (type: "info" | "success" | "warning" | "error", message: string) => void;
+
+// Default log function that just uses console
+const defaultLog: LogFn = (type, message) => {
+  console.log(`[${type}] ${message}`);
+};
+
 // Cache for loaded polygons to avoid fetching repeatedly
 let opportunityZonePolygons: any = null;
 
-async function loadOpportunityZones(): Promise<any> {
-  console.log("🔍 Attempting to load opportunity zones data");
+// Retry configuration
+const MAX_RETRIES = 3;
+const TIMEOUT_MS = 30000; // 30 seconds
+const RETRY_DELAYS = [1000, 3000, 5000]; // Delays between retries in milliseconds
+
+async function fetchWithTimeout(url: string, timeoutMs: number, log: LogFn = defaultLog): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      next: { revalidate: 3600 } // Cache for 1 hour
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    return response;
+  } catch (error: any) {
+    if (error?.name === 'AbortError') {
+      throw new Error('Request timed out');
+    }
+    throw new Error(error?.message || 'Network error occurred');
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function loadOpportunityZones(log: LogFn = defaultLog): Promise<any> {
+  log("info", "🔍 Attempting to load opportunity zones data");
   
   if (opportunityZonePolygons) {
-    console.log("✅ Using cached opportunity zones data");
+    log("success", "✅ Using cached opportunity zones data");
     return opportunityZonePolygons;
   }
   
   const url = process.env.OPPORTUNITY_ZONES_URL;
   
   if (!url) {
-    console.error("❌ Opportunity zones URL not configured in environment variables");
+    log("error", "❌ Opportunity zones URL not configured");
     throw new Error('Opportunity zones URL not configured');
   }
   
-  console.log(`🔗 Fetching opportunity zones from: ${url}`);
+  log("info", `🔗 Fetching opportunity zones data`);
   
-  try {
-    const response = await fetch(url);
-    
-    if (!response.ok) {
-      console.error(`❌ Failed to fetch opportunity zones: ${response.status} ${response.statusText}`);
-      throw new Error(`Failed to load opportunity zone data: ${response.status} ${response.statusText}`);
+  let lastError: Error = new Error('No attempts made');
+  
+  // Try multiple times with increasing delays
+  for (let i = 0; i < MAX_RETRIES; i++) {
+    try {
+      if (i > 0) {
+        log("info", `Retry attempt ${i + 1} of ${MAX_RETRIES}`);
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAYS[i - 1]));
+      }
+      
+      const response = await fetchWithTimeout(url, TIMEOUT_MS);
+      log("info", "📥 Parsing GeoJSON response");
+      opportunityZonePolygons = await response.json();
+      
+      if (!opportunityZonePolygons?.features?.length) {
+        log("error", "❌ Invalid GeoJSON format: missing features array");
+        throw new Error('Invalid GeoJSON format: missing features array');
+      }
+      
+      log("success", `📊 Loaded ${opportunityZonePolygons.features.length} opportunity zone features`);
+      return opportunityZonePolygons;
+    } catch (error: any) {
+      const errorMessage = error?.message || 'Unknown error occurred';
+      log("error", `Attempt ${i + 1} failed: ${errorMessage}`);
+      lastError = new Error(errorMessage);
+      
+      // If this isn't a timeout or network error, don't retry
+      if (!errorMessage.includes('timeout') && !errorMessage.includes('network')) {
+        break;
+      }
     }
-    
-    console.log("📥 Parsing GeoJSON response");
-    opportunityZonePolygons = await response.json();
-    
-    // Log basic info about the loaded data
-    if (opportunityZonePolygons && opportunityZonePolygons.features) {
-      console.log(`📊 Loaded ${opportunityZonePolygons.features.length} opportunity zone features`);
-    }
-    
-    return opportunityZonePolygons;
-  } catch (error) {
-    console.error("❌ Error loading opportunity zones:", error);
-    throw error;
   }
+  
+  throw new Error(`Failed to load opportunity zones after ${MAX_RETRIES} attempts: ${lastError.message}`);
 }
 
-export async function checkPointInPolygon(lat: number, lon: number): Promise<boolean> {
-  console.log(`🔍 Checking if point (${lat}, ${lon}) is in any opportunity zone`);
+export async function checkPointInPolygon(lat: number, lon: number, log: LogFn = defaultLog): Promise<boolean> {
+  log("info", `🔍 Checking if point (${lat}, ${lon}) is in any opportunity zone`);
   
   try {
-    const geoJson = await loadOpportunityZones();
+    const geoJson = await loadOpportunityZones(log);
     const pt = point([lon, lat]); // GeoJSON uses [longitude, latitude] order
     
-    console.log(`🧮 Checking point against ${geoJson.features.length} opportunity zone polygons`);
+    log("info", `🧮 Checking point against ${geoJson.features.length} opportunity zone polygons`);
     
     // Check each feature in the GeoJSON
     for (let i = 0; i < geoJson.features.length; i++) {
       const feature = geoJson.features[i];
       
-      // Optional: Log progress every 100 features to avoid console spam
-      if (i % 100 === 0) {
-        console.log(`🔄 Checked ${i}/${geoJson.features.length} polygons`);
+      // Log progress every 100 features
+      if (i % 100 === 0 && i > 0) {
+        log("info", `🔄 Checked ${i}/${geoJson.features.length} polygons`);
       }
       
       if (booleanPointInPolygon(pt, feature.geometry)) {
-        console.log(`✅ Point is inside opportunity zone! Feature ID: ${feature.id || feature.properties?.GEOID || i}`);
+        log("success", `✅ Point is inside opportunity zone! Feature ID: ${feature.id || feature.properties?.GEOID || i}`);
         return true;
       }
     }
     
-    console.log("❌ Point is not in any opportunity zone");
+    log("info", "❌ Point is not in any opportunity zone");
     return false;
-  } catch (error) {
-    console.error("❌ Error checking point in polygon:", error);
-    throw error; // Let the caller handle the error
+  } catch (error: any) {
+    log("error", `❌ Error checking point in polygon: ${error?.message || 'Unknown error'}`);
+    throw error;
   }
 }
 
