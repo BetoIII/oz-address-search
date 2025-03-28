@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
-import './globals.css'
+import '@/app/globals.css'
+import { LogsProvider } from "@/lib/logs-context"
 
 export const metadata: Metadata = {
   title: 'v0 App',
@@ -9,12 +10,16 @@ export const metadata: Metadata = {
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode
-}>) {
+}) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body className="min-h-screen bg-white">
+        <LogsProvider>
+          {children}
+        </LogsProvider>
+      </body>
     </html>
   )
 }
