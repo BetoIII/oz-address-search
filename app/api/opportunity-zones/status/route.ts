@@ -10,6 +10,7 @@ interface CacheStatus {
     nextRefreshDue?: string
     featureCount?: number
     version?: string
+    dataHash?: string
   }
   redis: {
     isConnected: boolean
@@ -18,6 +19,7 @@ interface CacheStatus {
     nextRefreshDue?: string
     featureCount?: number
     version?: string
+    dataHash?: string
   }
   system: {
     timestamp: string
@@ -38,19 +40,20 @@ export async function GET(request: Request) {
       )
     }
 
-    // Get memory cache status
-    const memoryCache = opportunityZoneService.getCacheState()
+    // Get memory cache metrics
+    const memoryMetrics = opportunityZoneService.getCacheMetrics()
     
     // Get Redis cache status
     const redisCache = await redisService.getOpportunityZoneCache()
 
     const status: CacheStatus = {
       memory: {
-        isAvailable: !!memoryCache,
-        lastUpdated: memoryCache?.metadata.lastUpdated.toISOString(),
-        nextRefreshDue: memoryCache?.metadata.nextRefreshDue.toISOString(),
-        featureCount: memoryCache?.metadata.featureCount,
-        version: memoryCache?.metadata.version
+        isAvailable: memoryMetrics.isInitialized,
+        lastUpdated: memoryMetrics.lastUpdated?.toISOString(),
+        nextRefreshDue: memoryMetrics.nextRefreshDue?.toISOString(),
+        featureCount: memoryMetrics.featureCount,
+        version: memoryMetrics.version,
+        dataHash: memoryMetrics.dataHash
       },
       redis: {
         isConnected: redisService.isConnected(),
@@ -58,7 +61,8 @@ export async function GET(request: Request) {
         lastUpdated: redisCache?.metadata.lastUpdated.toISOString(),
         nextRefreshDue: redisCache?.metadata.nextRefreshDue.toISOString(),
         featureCount: redisCache?.metadata.featureCount,
-        version: redisCache?.metadata.version
+        version: redisCache?.metadata.version,
+        dataHash: redisCache?.metadata.dataHash
       },
       system: {
         timestamp: new Date().toISOString(),

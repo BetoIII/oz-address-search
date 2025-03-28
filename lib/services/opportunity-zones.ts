@@ -16,6 +16,7 @@ interface SpatialIndexMetadata {
   lastUpdated: Date
   featureCount: number
   nextRefreshDue: Date
+  dataHash?: string
 }
 
 export interface RBushItem {
@@ -52,6 +53,15 @@ class OpportunityZoneService {
       OpportunityZoneService.instance = new OpportunityZoneService()
     }
     return OpportunityZoneService.instance
+  }
+
+  private async calculateDataHash(data: any): Promise<string> {
+    const stringified = JSON.stringify(data)
+    const encoder = new TextEncoder()
+    const buffer = encoder.encode(stringified)
+    const hashBuffer = await crypto.subtle.digest('SHA-256', buffer)
+    const hashArray = Array.from(new Uint8Array(hashBuffer))
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
   }
 
   private async loadOpportunityZones(log: LogFn = defaultLog): Promise<any> {
@@ -166,17 +176,31 @@ class OpportunityZoneService {
     log("info", "🔄 Refreshing opportunity zone data...")
     
     try {
+      // First, try to get data from Redis
+      const cachedData = await redisService.getOpportunityZoneCache()
+      
+      // Load fresh data
       const geoJson = await this.loadOpportunityZones(log)
+      const dataHash = await this.calculateDataHash(geoJson)
+      
+      // Check if data has changed
+      if (cachedData?.metadata.dataHash === dataHash) {
+        log("info", "📦 Data unchanged, using cached version")
+        this.cache = cachedData
+        return
+      }
+
       const spatialIndex = this.createSpatialIndex(geoJson)
       
       this.cache = {
         spatialIndex,
         geoJson,
         metadata: {
-          version: '1.0.0',
+          version: new Date().toISOString(),
           lastUpdated: new Date(),
           featureCount: geoJson.features.length,
-          nextRefreshDue: new Date(Date.now() + this.REFRESH_INTERVAL)
+          nextRefreshDue: new Date(Date.now() + this.REFRESH_INTERVAL),
+          dataHash
         }
       }
 
@@ -260,9 +284,32 @@ class OpportunityZoneService {
     }
   }
 
-  // For testing and monitoring
+  // Public methods to get cache information
   getCacheState(): CacheState | null {
     return this.cache
+  }
+
+  getCacheMetrics(): {
+    isInitialized: boolean
+    lastUpdated?: Date
+    nextRefreshDue?: Date
+    featureCount?: number
+    version?: string
+    dataHash?: string
+  } {
+    return {
+      isInitialized: !!this.cache,
+      lastUpdated: this.cache?.metadata.lastUpdated,
+      nextRefreshDue: this.cache?.metadata.nextRefreshDue,
+      featureCount: this.cache?.metadata.featureCount,
+      version: this.cache?.metadata.version,
+      dataHash: this.cache?.metadata.dataHash
+    }
+  }
+
+  // Method to force a cache refresh
+  async forceRefresh(log: LogFn = defaultLog): Promise<void> {
+    await this.refresh(log)
   }
 }
 

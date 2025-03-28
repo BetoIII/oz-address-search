@@ -107,6 +107,68 @@ async function testErrorCases() {
   }
 }
 
+async function testRateLimiting() {
+  const API_URL = 'http://localhost:3000/api/opportunity-zones/check'
+  const WEB_APP_KEY = process.env.WEB_APP_API_KEY || 'test_api_key_123'
+  const MCP_SERVER_KEY = process.env.MCP_SERVER_API_KEY || 'mcp_test_api_key_456'
+
+  console.log('🔒 Testing rate limiting...')
+
+  const testPayload = {
+    latitude: 40.7128,
+    longitude: -74.006
+  }
+
+  // Test web app rate limit
+  console.log('\n📱 Testing web app rate limit...')
+  const webAppResults = await Promise.all(
+    Array(70).fill(null).map(() => 
+      fetch(API_URL, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${WEB_APP_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(testPayload)
+      })
+    )
+  )
+
+  const webAppLimited = webAppResults.some(r => r.status === 429)
+  console.log(`Web App Rate Limit Test: ${webAppLimited ? '✅ Rate limited as expected' : '❌ Not rate limited'}`)
+
+  // Test MCP server rate limit (higher limit)
+  console.log('\n🖥️  Testing MCP server rate limit...')
+  const mcpResults = await Promise.all(
+    Array(70).fill(null).map(() => 
+      fetch(API_URL, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${MCP_SERVER_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(testPayload)
+      })
+    )
+  )
+
+  const mcpLimited = mcpResults.some(r => r.status === 429)
+  console.log(`MCP Server Rate Limit Test: ${!mcpLimited ? '✅ Not rate limited (higher limit)' : '❌ Rate limited unexpectedly'}`)
+
+  // Test invalid API key
+  console.log('\n🔑 Testing invalid API key...')
+  const invalidResponse = await fetch(API_URL, {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer invalid_key',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(testPayload)
+  })
+
+  console.log(`Invalid API Key Test: ${invalidResponse.status === 401 ? '✅ Rejected as expected' : '❌ Not rejected'}`)
+}
+
 async function testOpportunityZoneCheck() {
   // Test coordinates (mix of opportunity and non-opportunity zones)
   const testPoints = [
@@ -168,6 +230,7 @@ async function runTests() {
   await testOpportunityZoneCheck()
   await testErrorCases()
   await testCORS()
+  await testRateLimiting()
 }
 
 runTests().catch(console.error) 

@@ -29,13 +29,19 @@ export async function OPTIONS() {
 
 export async function POST(request: Request) {
   try {
-    // Create base response with CORS and cache headers
-    const response = cors(new NextResponse())
-    response.headers.set('Cache-Control', CACHE_CONTROL_HEADER)
-
     // API Key validation
     const authHeader = request.headers.get('authorization')
-    if (!authHeader || authHeader !== `Bearer ${process.env.WEB_APP_API_KEY}`) {
+    if (!authHeader) {
+      return cors(
+        NextResponse.json(
+          { error: 'Missing API key' },
+          { status: 401 }
+        )
+      )
+    }
+
+    const apiKey = authHeader.replace('Bearer ', '')
+    if (apiKey !== process.env.WEB_APP_API_KEY && apiKey !== process.env.MCP_SERVER_API_KEY) {
       return cors(
         NextResponse.json(
           { error: 'Invalid API key' },
@@ -44,9 +50,8 @@ export async function POST(request: Request) {
       )
     }
 
-    // Rate limiting
-    const clientId = request.headers.get('x-forwarded-for') || 'unknown'
-    const rateLimitInfo = await applyRateLimit(clientId, rateLimitConfig)
+    // Rate limiting based on API key
+    const rateLimitInfo = await applyRateLimit(apiKey)
     
     if (!rateLimitInfo.isAllowed) {
       return cors(

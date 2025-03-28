@@ -20,17 +20,30 @@ export interface RateLimitInfo {
   limit: number
 }
 
-const DEFAULT_CONFIG: RateLimitConfig = {
-  windowSizeInSeconds: 60, // 1 minute
-  maxRequests: 60, // 60 requests per minute
-  keyPrefix: 'ratelimit'
-}
+// Different rate limits for different API keys
+const API_KEY_CONFIGS = {
+  WEB_APP: {
+    windowSizeInSeconds: 60, // 1 minute
+    maxRequests: 60, // 60 requests per minute
+    keyPrefix: 'ratelimit:webapp'
+  },
+  MCP_SERVER: {
+    windowSizeInSeconds: 60, // 1 minute
+    maxRequests: 300, // 300 requests per minute (higher limit for server)
+    keyPrefix: 'ratelimit:mcp'
+  }
+} as const
 
 export class RateLimiter {
   private config: RateLimitConfig
 
   constructor(config: Partial<RateLimitConfig> = {}) {
-    this.config = { ...DEFAULT_CONFIG, ...config }
+    this.config = {
+      windowSizeInSeconds: 60,
+      maxRequests: 60,
+      keyPrefix: 'ratelimit',
+      ...config
+    }
   }
 
   private getKey(identifier: string): string {
@@ -93,14 +106,22 @@ export class RateLimiter {
   }
 }
 
-// Create a default rate limiter instance
-export const defaultRateLimiter = new RateLimiter()
+// Helper function to determine rate limit config based on API key
+export function getRateLimitConfigForApiKey(apiKey: string): RateLimitConfig {
+  if (apiKey === process.env.WEB_APP_API_KEY) {
+    return API_KEY_CONFIGS.WEB_APP
+  } else if (apiKey === process.env.MCP_SERVER_API_KEY) {
+    return API_KEY_CONFIGS.MCP_SERVER
+  }
+  // Default to web app config for unknown keys (they'll be rejected by auth anyway)
+  return API_KEY_CONFIGS.WEB_APP
+}
 
 // Helper function to apply rate limiting to a request
 export async function applyRateLimit(
-  identifier: string,
-  config?: Partial<RateLimitConfig>
+  apiKey: string
 ): Promise<RateLimitInfo> {
-  const limiter = config ? new RateLimiter(config) : defaultRateLimiter
-  return limiter.checkLimit(identifier)
+  const config = getRateLimitConfigForApiKey(apiKey)
+  const limiter = new RateLimiter(config)
+  return limiter.checkLimit(apiKey)
 } 
