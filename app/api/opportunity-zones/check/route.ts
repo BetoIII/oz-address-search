@@ -16,14 +16,20 @@ const checkSchema = z.object({
   lon: z.number().min(-180).max(180)
 })
 
+// Cache configuration
+const CACHE_CONTROL_HEADER = process.env.NODE_ENV === 'production'
+  ? 'public, max-age=3600, stale-while-revalidate=86400' // 1 hour fresh, 24 hours stale
+  : 'no-store' // No caching in development
+
 export async function OPTIONS() {
   return cors(new NextResponse(null, { status: 204 }))
 }
 
 export async function POST(request: Request) {
   try {
-    // Apply CORS headers
+    // Create base response with CORS and cache headers
     const response = cors(new NextResponse())
+    response.headers.set('Cache-Control', CACHE_CONTROL_HEADER)
 
     // API Key validation
     const authHeader = request.headers.get('authorization')
@@ -31,7 +37,12 @@ export async function POST(request: Request) {
       return cors(
         NextResponse.json(
           { error: 'Invalid API key' },
-          { status: 401 }
+          { 
+            status: 401,
+            headers: {
+              'Cache-Control': 'no-store'
+            }
+          }
         )
       )
     }
@@ -43,7 +54,12 @@ export async function POST(request: Request) {
       return cors(
         NextResponse.json(
           { error: 'Rate limit exceeded' },
-          { status: 429 }
+          { 
+            status: 429,
+            headers: {
+              'Cache-Control': 'no-store'
+            }
+          }
         )
       )
     }
@@ -59,7 +75,12 @@ export async function POST(request: Request) {
             error: 'Invalid request parameters',
             details: result.error.format()
           },
-          { status: 400 }
+          { 
+            status: 400,
+            headers: {
+              'Cache-Control': 'no-store'
+            }
+          }
         )
       )
     }
@@ -67,6 +88,23 @@ export async function POST(request: Request) {
     // Process the request using OpportunityZoneService
     const { lat, lon } = result.data
     const checkResult = await opportunityZoneService.checkPoint(lat, lon)
+
+    // Generate ETag based on coordinates and data version
+    const etag = `"${lat},${lon}-${checkResult.metadata.version}"`
+    const ifNoneMatch = request.headers.get('if-none-match')
+
+    // If ETag matches, return 304 Not Modified
+    if (ifNoneMatch === etag) {
+      return cors(
+        new NextResponse(null, {
+          status: 304,
+          headers: {
+            'Cache-Control': CACHE_CONTROL_HEADER,
+            'ETag': etag
+          }
+        })
+      )
+    }
 
     const responseData: OpportunityZoneCheck = {
       lat,
@@ -81,14 +119,27 @@ export async function POST(request: Request) {
       }
     }
 
-    return cors(NextResponse.json(responseData))
+    // Return response with cache headers
+    return cors(
+      NextResponse.json(responseData, {
+        headers: {
+          'Cache-Control': CACHE_CONTROL_HEADER,
+          'ETag': etag
+        }
+      })
+    )
 
   } catch (error) {
     console.error('Error processing request:', error)
     return cors(
       NextResponse.json(
         { error: 'Internal server error' },
-        { status: 500 }
+        { 
+          status: 500,
+          headers: {
+            'Cache-Control': 'no-store'
+          }
+        }
       )
     )
   }

@@ -14,6 +14,7 @@ interface SpatialIndexMetadata {
   version: string
   lastUpdated: Date
   featureCount: number
+  nextRefreshDue: Date
 }
 
 interface RBushItem {
@@ -25,14 +26,25 @@ interface RBushItem {
   index: number
 }
 
+interface CacheState {
+  spatialIndex: RBush<RBushItem>
+  metadata: SpatialIndexMetadata
+  geoJson: any
+}
+
 class OpportunityZoneService {
   private static instance: OpportunityZoneService
-  private spatialIndex: RBush<RBushItem> | null = null
-  private metadata: SpatialIndexMetadata | null = null
+  private cache: CacheState | null = null
   private isInitializing = false
   private initPromise: Promise<void> | null = null
+  private refreshInterval: NodeJS.Timeout | null = null
+  private readonly REFRESH_INTERVAL = 24 * 60 * 60 * 1000 // 24 hours
+  private readonly REFRESH_CHECK_INTERVAL = 5 * 60 * 1000 // 5 minutes
 
-  private constructor() {}
+  private constructor() {
+    // Start the refresh check timer
+    this.startRefreshChecker()
+  }
 
   static getInstance(): OpportunityZoneService {
     if (!OpportunityZoneService.instance) {
@@ -48,7 +60,7 @@ class OpportunityZoneService {
       throw new Error('Opportunity zones URL not configured')
     }
     
-    log("info", `🔗 Fetching opportunity zones data`)
+    log("info", `🔗 Fetching opportunity zones data from ${url}`)
     const response = await fetch(url, {
       next: { revalidate: 3600 } // Cache for 1 hour
     })
@@ -124,9 +136,57 @@ class OpportunityZoneService {
     return tree
   }
 
+  private startRefreshChecker() {
+    // Clear any existing interval
+    if (this.refreshInterval) {
+      clearInterval(this.refreshInterval)
+    }
+
+    // Set up periodic refresh check
+    this.refreshInterval = setInterval(async () => {
+      try {
+        if (this.cache && new Date() >= this.cache.metadata.nextRefreshDue) {
+          await this.refresh(defaultLog)
+        }
+      } catch (error) {
+        console.error('Error in refresh check:', error)
+      }
+    }, this.REFRESH_CHECK_INTERVAL)
+
+    // Ensure the interval doesn't prevent the process from exiting
+    if (this.refreshInterval.unref) {
+      this.refreshInterval.unref()
+    }
+  }
+
+  private async refresh(log: LogFn = defaultLog): Promise<void> {
+    log("info", "🔄 Refreshing opportunity zone data...")
+    
+    try {
+      const geoJson = await this.loadOpportunityZones(log)
+      const spatialIndex = this.createSpatialIndex(geoJson)
+      
+      this.cache = {
+        spatialIndex,
+        geoJson,
+        metadata: {
+          version: '1.0.0',
+          lastUpdated: new Date(),
+          featureCount: geoJson.features.length,
+          nextRefreshDue: new Date(Date.now() + this.REFRESH_INTERVAL)
+        }
+      }
+
+      log("success", `✅ Refresh complete. Loaded ${geoJson.features.length} features`)
+    } catch (error) {
+      log("error", `❌ Refresh failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      throw error
+    }
+  }
+
   async initialize(log: LogFn = defaultLog): Promise<void> {
-    // If already initialized, return immediately
-    if (this.spatialIndex) {
+    // If already initialized with valid cache, return immediately
+    if (this.cache && new Date() < this.cache.metadata.nextRefreshDue) {
       return
     }
 
@@ -136,26 +196,13 @@ class OpportunityZoneService {
     }
 
     this.isInitializing = true
-    this.initPromise = (async () => {
-      try {
-        log("info", "🔄 Initializing opportunity zone spatial index...")
-        const geoJson = await this.loadOpportunityZones(log)
-        this.spatialIndex = this.createSpatialIndex(geoJson)
-        this.metadata = {
-          version: '1.0.0',
-          lastUpdated: new Date(),
-          featureCount: geoJson.features.length
-        }
-        log("success", `✅ Spatial index created with ${geoJson.features.length} features`)
-      } catch (error) {
-        log("error", `❌ Failed to initialize spatial index: ${error instanceof Error ? error.message : 'Unknown error'}`)
-        throw error
-      } finally {
-        this.isInitializing = false
-      }
-    })()
+    this.initPromise = this.refresh(log)
 
-    return this.initPromise
+    try {
+      await this.initPromise
+    } finally {
+      this.isInitializing = false
+    }
   }
 
   async checkPoint(lat: number, lon: number, log: LogFn = defaultLog): Promise<{
@@ -163,7 +210,7 @@ class OpportunityZoneService {
     zoneId?: string,
     metadata: SpatialIndexMetadata
   }> {
-    if (!this.spatialIndex || !this.metadata) {
+    if (!this.cache || new Date() >= this.cache.metadata.nextRefreshDue) {
       await this.initialize(log)
     }
 
@@ -177,7 +224,7 @@ class OpportunityZoneService {
       maxY: lat + 0.1
     }
     
-    const candidateFeatures = this.spatialIndex!.search(searchBBox)
+    const candidateFeatures = this.cache!.spatialIndex.search(searchBBox)
     log("info", `🔍 Checking point against ${candidateFeatures.length} nearby polygons`)
     
     for (const item of candidateFeatures) {
@@ -185,15 +232,20 @@ class OpportunityZoneService {
         return {
           isInZone: true,
           zoneId: item.feature.properties?.GEOID,
-          metadata: this.metadata!
+          metadata: this.cache!.metadata
         }
       }
     }
     
     return {
       isInZone: false,
-      metadata: this.metadata!
+      metadata: this.cache!.metadata
     }
+  }
+
+  // For testing and monitoring
+  getCacheState(): CacheState | null {
+    return this.cache
   }
 }
 
