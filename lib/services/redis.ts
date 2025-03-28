@@ -1,6 +1,6 @@
-import Redis from 'ioredis'
-import { CacheState, RBushItem } from './opportunity-zones'
-import RBush from 'rbush'
+import { Redis } from '@upstash/redis'
+import type { RBush } from 'rbush'
+import type { RBushItem } from './opportunity-zones'
 
 // Redis key prefixes
 const KEYS = {
@@ -9,13 +9,17 @@ const KEYS = {
   METADATA: 'oz:metadata'
 } as const
 
-class RedisService {
+export class RedisService {
   private static instance: RedisService
-  private client: Redis | null = null
+  private client: Redis
+  private readonly cacheKey = 'opportunity-zones'
   private _isConnected = false
 
-  private constructor() {
-    this.initializeClient()
+  constructor() {
+    this.client = new Redis({
+      url: process.env.REDIS_URL!,
+      token: process.env.REDIS_TOKEN!
+    })
   }
 
   static getInstance(): RedisService {
@@ -25,35 +29,8 @@ class RedisService {
     return RedisService.instance
   }
 
-  getClient(): Redis | null {
+  getClient(): Redis {
     return this.client
-  }
-
-  private initializeClient() {
-    const redisUrl = process.env.REDIS_URL
-
-    if (!redisUrl) {
-      console.warn('⚠️ REDIS_URL not configured, Redis caching will be disabled')
-      return
-    }
-
-    this.client = new Redis(redisUrl, {
-      retryStrategy: (times: number) => {
-        const delay = Math.min(times * 50, 2000)
-        return delay
-      },
-      maxRetriesPerRequest: 3
-    })
-
-    this.client.on('connect', () => {
-      console.log('✅ Connected to Redis')
-      this._isConnected = true
-    })
-
-    this.client.on('error', (error: Error) => {
-      console.error('❌ Redis connection error:', error)
-      this._isConnected = false
-    })
   }
 
   isConnected(): boolean {
@@ -152,6 +129,36 @@ class RedisService {
     } catch (error) {
       console.error('Error clearing Redis cache:', error)
       return false
+    }
+  }
+
+  async saveCache(tree: RBush<RBushItem>): Promise<void> {
+    try {
+      await this.client.set(this.cacheKey, JSON.stringify(tree.toJSON()))
+    } catch (error) {
+      console.error('Failed to save cache to Redis:', error)
+    }
+  }
+
+  async loadCache(): Promise<RBush<RBushItem> | null> {
+    try {
+      const data = await this.client.get<string>(this.cacheKey)
+      if (!data) return null
+
+      const tree = new RBush<RBushItem>()
+      tree.fromJSON(JSON.parse(data))
+      return tree
+    } catch (error) {
+      console.error('Failed to load cache from Redis:', error)
+      return null
+    }
+  }
+
+  async clearCache(): Promise<void> {
+    try {
+      await this.client.del(this.cacheKey)
+    } catch (error) {
+      console.error('Failed to clear Redis cache:', error)
     }
   }
 }
