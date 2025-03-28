@@ -196,3 +196,13 @@ export async function checkPointInPolygon(lat: number, lon: number, log: LogFn =
   }
 }
 
+// Export the loading function so we can call it from the form
+export async function preloadOpportunityZones(log: LogFn = defaultLog): Promise<void> {
+  try {
+    await loadOpportunityZones(log);
+  } catch (error) {
+    // Silently fail on preload - we'll retry during the actual check if needed
+    log("warning", `⚠️ Preload attempt failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
