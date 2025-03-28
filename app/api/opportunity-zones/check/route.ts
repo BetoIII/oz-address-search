@@ -5,6 +5,9 @@ import { opportunityZoneService } from '@/lib/services/opportunity-zones'
 import { cors } from '@/lib/cors'
 import { applyRateLimit } from '@/lib/rate-limit'
 
+export const runtime = 'edge'
+export const preferredRegion = 'iad1'
+
 // Input validation schema
 const checkRequestSchema = z.object({
   latitude: z.number().min(-90).max(90),
