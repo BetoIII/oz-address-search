@@ -10,6 +10,56 @@ interface ErrorResponse {
   details?: Record<string, any>
 }
 
+async function testCORS() {
+  const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
+  
+  console.log('\n🧪 Testing CORS')
+  console.log('==============')
+
+  // Test OPTIONS request
+  try {
+    console.log('\n📍 Testing OPTIONS request')
+    const response = await fetch(`${baseUrl}/api/opportunity-zones/check`, {
+      method: 'OPTIONS',
+      headers: {
+        'Origin': 'http://localhost:8000',
+        'Access-Control-Request-Method': 'POST'
+      }
+    })
+
+    console.log('Status:', response.status)
+    console.log('CORS Headers:')
+    console.log('Access-Control-Allow-Origin:', response.headers.get('Access-Control-Allow-Origin'))
+    console.log('Access-Control-Allow-Methods:', response.headers.get('Access-Control-Allow-Methods'))
+    console.log('Access-Control-Allow-Headers:', response.headers.get('Access-Control-Allow-Headers'))
+  } catch (error) {
+    console.error('Error:', error instanceof Error ? error.message : 'Unknown error')
+  }
+
+  // Test POST request CORS headers
+  try {
+    console.log('\n📍 Testing POST request CORS headers')
+    const response = await fetch(`${baseUrl}/api/opportunity-zones/check`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.WEB_APP_API_KEY}`,
+        'Origin': 'http://localhost:8000'
+      },
+      body: JSON.stringify({
+        lat: 40.7128,
+        lon: -74.0060
+      })
+    })
+
+    console.log('Status:', response.status)
+    console.log('CORS Headers:')
+    console.log('Access-Control-Allow-Origin:', response.headers.get('Access-Control-Allow-Origin'))
+  } catch (error) {
+    console.error('Error:', error instanceof Error ? error.message : 'Unknown error')
+  }
+}
+
 async function testErrorCases() {
   const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
   const testPoint = { lat: 40.7128, lon: -74.0060 }
@@ -64,8 +114,8 @@ async function testOpportunityZoneCheck() {
     { lat: 40.6782, lon: -73.9442, description: 'Brooklyn' },
     { lat: 40.7282, lon: -73.7949, description: 'Queens' },
     // Known opportunity zones
-    { lat: 29.4201678, lon: -98.493801, description: '24 Dwyer Ave, San Antonio, TX 78204' },
-    { lat: 34.0295879, lon: -118.2312132, description: '2432 E 8th St, Los Angeles, CA 90021' },
+    { lat: 40.8147, lon: -73.9171, description: 'South Bronx (Known OZ)' },
+    { lat: 40.6681, lon: -73.8928, description: 'East New York (Known OZ)' },
     // Edge cases
     { lat: 90, lon: 180, description: 'Edge case: Max coordinates' },
     { lat: -90, lon: -180, description: 'Edge case: Min coordinates' },
@@ -117,6 +167,7 @@ async function testOpportunityZoneCheck() {
 async function runTests() {
   await testOpportunityZoneCheck()
   await testErrorCases()
+  await testCORS()
 }
 
 runTests().catch(console.error) 

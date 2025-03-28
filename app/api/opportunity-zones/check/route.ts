@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { OpportunityZoneCheck } from '@/types/api'
 import { opportunityZoneService } from '@/lib/services/opportunity-zones'
 import { rateLimit } from '@/lib/rate-limit'
+import { cors } from '@/lib/cors'
 
 const limiter = rateLimit({
   interval: 60 * 1000, // 1 minute
@@ -15,14 +16,23 @@ const checkSchema = z.object({
   lon: z.number().min(-180).max(180)
 })
 
+export async function OPTIONS() {
+  return cors(new NextResponse(null, { status: 204 }))
+}
+
 export async function POST(request: Request) {
   try {
+    // Apply CORS headers
+    const response = cors(new NextResponse())
+
     // API Key validation
     const authHeader = request.headers.get('authorization')
     if (!authHeader || authHeader !== `Bearer ${process.env.WEB_APP_API_KEY}`) {
-      return NextResponse.json(
-        { error: 'Invalid API key' },
-        { status: 401 }
+      return cors(
+        NextResponse.json(
+          { error: 'Invalid API key' },
+          { status: 401 }
+        )
       )
     }
 
@@ -30,9 +40,11 @@ export async function POST(request: Request) {
     try {
       await limiter.check(50, 'CACHE_TOKEN')
     } catch {
-      return NextResponse.json(
-        { error: 'Rate limit exceeded' },
-        { status: 429 }
+      return cors(
+        NextResponse.json(
+          { error: 'Rate limit exceeded' },
+          { status: 429 }
+        )
       )
     }
 
@@ -41,12 +53,14 @@ export async function POST(request: Request) {
     const result = checkSchema.safeParse(body)
 
     if (!result.success) {
-      return NextResponse.json(
-        { 
-          error: 'Invalid request parameters',
-          details: result.error.format()
-        },
-        { status: 400 }
+      return cors(
+        NextResponse.json(
+          { 
+            error: 'Invalid request parameters',
+            details: result.error.format()
+          },
+          { status: 400 }
+        )
       )
     }
 
@@ -54,7 +68,7 @@ export async function POST(request: Request) {
     const { lat, lon } = result.data
     const checkResult = await opportunityZoneService.checkPoint(lat, lon)
 
-    const response: OpportunityZoneCheck = {
+    const responseData: OpportunityZoneCheck = {
       lat,
       lon,
       timestamp: new Date().toISOString(),
@@ -67,13 +81,15 @@ export async function POST(request: Request) {
       }
     }
 
-    return NextResponse.json(response)
+    return cors(NextResponse.json(responseData))
 
   } catch (error) {
     console.error('Error processing request:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
+    return cors(
+      NextResponse.json(
+        { error: 'Internal server error' },
+        { status: 500 }
+      )
     )
   }
 } 
