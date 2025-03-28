@@ -3,6 +3,7 @@
 
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon';
 import { point } from '@turf/helpers';
+import RBush from 'rbush';
 
 // Type for the log function
 type LogFn = (type: "info" | "success" | "warning" | "error", message: string) => void;
@@ -81,6 +82,7 @@ async function loadOpportunityZones(log: LogFn = defaultLog): Promise<any> {
       }
       
       log("success", `📊 Loaded ${opportunityZonePolygons.features.length} opportunity zone features`);
+      opportunityZonePolygons = optimizeGeoJson(opportunityZonePolygons);
       return opportunityZonePolygons;
     } catch (error: any) {
       const errorMessage = error?.message || 'Unknown error occurred';
@@ -97,26 +99,91 @@ async function loadOpportunityZones(log: LogFn = defaultLog): Promise<any> {
   throw new Error(`Failed to load opportunity zones after ${MAX_RETRIES} attempts: ${lastError.message}`);
 }
 
+// Add this helper function to calculate bounding box
+function calculateBBox(geometry: any) {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+
+  function processCoordinates(coords: number[]) {
+    const [lon, lat] = coords;
+    minX = Math.min(minX, lon);
+    minY = Math.min(minY, lat);
+    maxX = Math.max(maxX, lon);
+    maxY = Math.max(maxY, lat);
+  }
+
+  function processGeometry(geom: any) {
+    if (geom.type === 'Polygon') {
+      geom.coordinates[0].forEach(processCoordinates);
+    } else if (geom.type === 'MultiPolygon') {
+      geom.coordinates.forEach(polygon => 
+        polygon[0].forEach(processCoordinates)
+      );
+    }
+  }
+
+  processGeometry(geometry);
+  return [minX, minY, maxX, maxY];
+}
+
+function createSpatialIndex(geoJson: any) {
+  const tree = new RBush();
+  const items = geoJson.features.map((feature: any, index: number) => {
+    const bbox = feature.bbox || calculateBBox(feature.geometry);
+    return {
+      minX: bbox[0],
+      minY: bbox[1],
+      maxX: bbox[2],
+      maxY: bbox[3],
+      feature,
+      index
+    };
+  });
+  tree.load(items);
+  return tree;
+}
+
+// Add this function to optimize the GeoJSON before creating the spatial index
+function optimizeGeoJson(geoJson: any) {
+  return {
+    type: 'FeatureCollection',
+    features: geoJson.features.map((feature: any) => ({
+      type: 'Feature',
+      geometry: feature.geometry,
+      properties: {
+        GEOID: feature.properties?.GEOID // Keep only essential properties
+      }
+    }))
+  };
+}
+
 export async function checkPointInPolygon(lat: number, lon: number, log: LogFn = defaultLog): Promise<boolean> {
-  log("info", `🔍 Checking if point (${lat}, ${lon}) is in any opportunity zone`);
-  
   try {
     const geoJson = await loadOpportunityZones(log);
-    const pt = point([lon, lat]); // GeoJSON uses [longitude, latitude] order
+    const pt = point([lon, lat]);
     
-    log("info", `🧮 Checking point against ${geoJson.features.length} opportunity zone polygons`);
+    // Create or get cached spatial index
+    if (!geoJson.spatialIndex) {
+      log("info", "Creating spatial index for faster lookups");
+      geoJson.spatialIndex = createSpatialIndex(geoJson);
+    }
     
-    // Check each feature in the GeoJSON
-    for (let i = 0; i < geoJson.features.length; i++) {
-      const feature = geoJson.features[i];
-      
-      // Log progress every 100 features
-      if (i % 100 === 0 && i > 0) {
-        log("info", `🔄 Checked ${i}/${geoJson.features.length} polygons`);
-      }
-      
-      if (booleanPointInPolygon(pt, feature.geometry)) {
-        log("success", `✅ Point is inside opportunity zone! Feature ID: ${feature.id || feature.properties?.GEOID || i}`);
+    // Search only nearby features
+    const searchBBox = {
+      minX: lon - 0.1,
+      minY: lat - 0.1,
+      maxX: lon + 0.1,
+      maxY: lat + 0.1
+    };
+    
+    const candidateFeatures = geoJson.spatialIndex.search(searchBBox);
+    log("info", `🔍 Checking point against ${candidateFeatures.length} nearby polygons (filtered from ${geoJson.features.length})`);
+    
+    for (const item of candidateFeatures) {
+      if (booleanPointInPolygon(pt, item.feature.geometry)) {
+        log("success", `✅ Point is inside opportunity zone! Feature ID: ${item.feature.id || item.feature.properties?.GEOID || item.index}`);
         return true;
       }
     }
@@ -126,6 +193,16 @@ export async function checkPointInPolygon(lat: number, lon: number, log: LogFn =
   } catch (error: any) {
     log("error", `❌ Error checking point in polygon: ${error?.message || 'Unknown error'}`);
     throw error;
+  }
+}
+
+// Export the loading function so we can call it from the form
+export async function preloadOpportunityZones(log: LogFn = defaultLog): Promise<void> {
+  try {
+    await loadOpportunityZones(log);
+  } catch (error) {
+    // Silently fail on preload - we'll retry during the actual check if needed
+    log("warning", `⚠️ Preload attempt failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
 

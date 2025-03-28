@@ -2,22 +2,53 @@
 
 import type React from "react"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { SearchIcon, Loader2 } from "lucide-react"
-import { checkAddressInOpportunityZone, CheckAddressResult } from "@/lib/actions"
+import { checkAddressInOpportunityZone, type CheckAddressResult } from "@/lib/actions"
 import { ResultDisplay } from "@/components/result-display"
 import { LogDisplay } from "@/components/log-display"
 import { useLogs } from "@/lib/logs-context"
+import { preloadOpportunityZones } from "@/lib/opportunity-zone-checker"
 
 export function AddressSearchForm() {
   const [address, setAddress] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [result, setResult] = useState<CheckAddressResult | null>(null)
   const { addLog, clearLogs } = useLogs()
+  const preloadTimeoutRef = useRef<NodeJS.Timeout>()
+
+  // Debounced preload function
+  const handleAddressChange = useCallback((newAddress: string) => {
+    setAddress(newAddress)
+
+    // Clear any existing timeout
+    if (preloadTimeoutRef.current) {
+      clearTimeout(preloadTimeoutRef.current)
+    }
+
+    // Start preloading after user has typed at least 5 characters and paused for 500ms
+    if (newAddress.length >= 5) {
+      preloadTimeoutRef.current = setTimeout(() => {
+        addLog("info", "🔄 Preloading opportunity zone data...")
+        preloadOpportunityZones(addLog).catch(() => {
+          // Ignore preload errors - we'll handle them during the actual check
+        })
+      }, 500)
+    }
+  }, [addLog])
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (preloadTimeoutRef.current) {
+        clearTimeout(preloadTimeoutRef.current)
+      }
+    }
+  }, [])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -67,7 +98,7 @@ export function AddressSearchForm() {
             id="address"
             placeholder="123 Main St, City, State, ZIP"
             value={address}
-            onChange={(e) => setAddress(e.target.value)}
+            onChange={(e) => handleAddressChange(e.target.value)}
             className="w-full"
             disabled={isLoading}
           />
