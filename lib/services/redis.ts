@@ -12,7 +12,7 @@ const KEYS = {
 class RedisService {
   private static instance: RedisService
   private client: Redis | null = null
-  private isConnected = false
+  private _isConnected = false
 
   private constructor() {
     this.initializeClient()
@@ -23,6 +23,10 @@ class RedisService {
       RedisService.instance = new RedisService()
     }
     return RedisService.instance
+  }
+
+  getClient(): Redis | null {
+    return this.client
   }
 
   private initializeClient() {
@@ -43,17 +47,21 @@ class RedisService {
 
     this.client.on('connect', () => {
       console.log('✅ Connected to Redis')
-      this.isConnected = true
+      this._isConnected = true
     })
 
     this.client.on('error', (error: Error) => {
       console.error('❌ Redis connection error:', error)
-      this.isConnected = false
+      this._isConnected = false
     })
   }
 
+  isConnected(): boolean {
+    return this._isConnected
+  }
+
   async saveOpportunityZoneCache(cache: CacheState): Promise<boolean> {
-    if (!this.client || !this.isConnected) return false
+    if (!this.client || !this._isConnected) return false
 
     try {
       const pipeline = this.client.pipeline()
@@ -91,7 +99,7 @@ class RedisService {
   }
 
   async getOpportunityZoneCache(): Promise<CacheState | null> {
-    if (!this.client || !this.isConnected) return null
+    if (!this.client || !this._isConnected) return null
 
     try {
       const pipeline = this.client.pipeline()
@@ -132,7 +140,7 @@ class RedisService {
   }
 
   async clearOpportunityZoneCache(): Promise<boolean> {
-    if (!this.client || !this.isConnected) return false
+    if (!this.client || !this._isConnected) return false
 
     try {
       await this.client.del(

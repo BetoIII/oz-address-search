@@ -2,19 +2,21 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { OpportunityZoneCheck } from '@/types/api'
 import { opportunityZoneService } from '@/lib/services/opportunity-zones'
-import { rateLimit } from '@/lib/rate-limit'
 import { cors } from '@/lib/cors'
-
-const limiter = rateLimit({
-  interval: 60 * 1000, // 1 minute
-  uniqueTokenPerInterval: 500
-})
+import { applyRateLimit } from '@/lib/rate-limit'
 
 // Input validation schema
-const checkSchema = z.object({
-  lat: z.number().min(-90).max(90),
-  lon: z.number().min(-180).max(180)
+const checkRequestSchema = z.object({
+  latitude: z.number().min(-90).max(90),
+  longitude: z.number().min(-180).max(180)
 })
+
+// Rate limit configuration
+const rateLimitConfig = {
+  windowSizeInSeconds: 60, // 1 minute window
+  maxRequests: 60, // 60 requests per minute
+  keyPrefix: 'oz-check'
+}
 
 // Cache configuration
 const CACHE_CONTROL_HEADER = process.env.NODE_ENV === 'production'
@@ -37,27 +39,29 @@ export async function POST(request: Request) {
       return cors(
         NextResponse.json(
           { error: 'Invalid API key' },
-          { 
-            status: 401,
-            headers: {
-              'Cache-Control': 'no-store'
-            }
-          }
+          { status: 401 }
         )
       )
     }
 
     // Rate limiting
-    try {
-      await limiter.check(50, 'CACHE_TOKEN')
-    } catch {
+    const clientId = request.headers.get('x-forwarded-for') || 'unknown'
+    const rateLimitInfo = await applyRateLimit(clientId, rateLimitConfig)
+    
+    if (!rateLimitInfo.isAllowed) {
       return cors(
         NextResponse.json(
-          { error: 'Rate limit exceeded' },
+          { 
+            error: 'Rate limit exceeded',
+            reset: new Date(rateLimitInfo.reset * 1000).toISOString()
+          },
           { 
             status: 429,
             headers: {
-              'Cache-Control': 'no-store'
+              'X-RateLimit-Limit': rateLimitInfo.limit.toString(),
+              'X-RateLimit-Remaining': rateLimitInfo.remaining.toString(),
+              'X-RateLimit-Reset': rateLimitInfo.reset.toString(),
+              'Retry-After': Math.ceil(rateLimitInfo.reset - Date.now() / 1000).toString()
             }
           }
         )
@@ -66,31 +70,34 @@ export async function POST(request: Request) {
 
     // Parse and validate request body
     const body = await request.json()
-    const result = checkSchema.safeParse(body)
+    const parseResult = checkRequestSchema.safeParse(body)
 
-    if (!result.success) {
+    if (!parseResult.success) {
       return cors(
         NextResponse.json(
           { 
             error: 'Invalid request parameters',
-            details: result.error.format()
+            details: parseResult.error.format()
           },
           { 
             status: 400,
             headers: {
-              'Cache-Control': 'no-store'
+              'X-RateLimit-Limit': rateLimitInfo.limit.toString(),
+              'X-RateLimit-Remaining': rateLimitInfo.remaining.toString(),
+              'X-RateLimit-Reset': rateLimitInfo.reset.toString()
             }
           }
         )
       )
     }
 
-    // Process the request using OpportunityZoneService
-    const { lat, lon } = result.data
-    const checkResult = await opportunityZoneService.checkPoint(lat, lon)
+    const { latitude, longitude } = parseResult.data
+
+    // Check if point is in an opportunity zone
+    const result = await opportunityZoneService.checkPoint(latitude, longitude)
 
     // Generate ETag based on coordinates and data version
-    const etag = `"${lat},${lon}-${checkResult.metadata.version}"`
+    const etag = `"${latitude},${longitude}-${result.metadata.version}"`
     const ifNoneMatch = request.headers.get('if-none-match')
 
     // If ETag matches, return 304 Not Modified
@@ -107,15 +114,15 @@ export async function POST(request: Request) {
     }
 
     const responseData: OpportunityZoneCheck = {
-      lat,
-      lon,
+      lat: latitude,
+      lon: longitude,
       timestamp: new Date().toISOString(),
-      isInOpportunityZone: checkResult.isInZone,
-      opportunityZoneId: checkResult.zoneId,
+      isInOpportunityZone: result.isInZone,
+      opportunityZoneId: result.zoneId,
       metadata: {
-        version: checkResult.metadata.version,
-        lastUpdated: checkResult.metadata.lastUpdated.toISOString(),
-        featureCount: checkResult.metadata.featureCount
+        version: result.metadata.version,
+        lastUpdated: result.metadata.lastUpdated.toISOString(),
+        featureCount: result.metadata.featureCount
       }
     }
 
@@ -124,7 +131,10 @@ export async function POST(request: Request) {
       NextResponse.json(responseData, {
         headers: {
           'Cache-Control': CACHE_CONTROL_HEADER,
-          'ETag': etag
+          'ETag': etag,
+          'X-RateLimit-Limit': rateLimitInfo.limit.toString(),
+          'X-RateLimit-Remaining': rateLimitInfo.remaining.toString(),
+          'X-RateLimit-Reset': rateLimitInfo.reset.toString()
         }
       })
     )
@@ -134,12 +144,7 @@ export async function POST(request: Request) {
     return cors(
       NextResponse.json(
         { error: 'Internal server error' },
-        { 
-          status: 500,
-          headers: {
-            'Cache-Control': 'no-store'
-          }
-        }
+        { status: 500 }
       )
     )
   }

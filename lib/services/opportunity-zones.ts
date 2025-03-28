@@ -63,7 +63,9 @@ class OpportunityZoneService {
     
     log("info", `🔗 Fetching opportunity zones data from ${url}`)
     const response = await fetch(url, {
-      next: { revalidate: 3600 } // Cache for 1 hour
+      headers: {
+        'Cache-Control': 'max-age=3600' // Cache for 1 hour
+      }
     })
 
     if (!response.ok) {
