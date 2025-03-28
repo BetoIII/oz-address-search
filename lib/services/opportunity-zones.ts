@@ -1,6 +1,7 @@
 import RBush from 'rbush'
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon'
 import { point } from '@turf/helpers'
+import { redisService } from './redis'
 
 // Type for the log function
 type LogFn = (type: "info" | "success" | "warning" | "error", message: string) => void;
@@ -17,7 +18,7 @@ interface SpatialIndexMetadata {
   nextRefreshDue: Date
 }
 
-interface RBushItem {
+export interface RBushItem {
   minX: number
   minY: number
   maxX: number
@@ -26,7 +27,7 @@ interface RBushItem {
   index: number
 }
 
-interface CacheState {
+export interface CacheState {
   spatialIndex: RBush<RBushItem>
   metadata: SpatialIndexMetadata
   geoJson: any
@@ -177,6 +178,9 @@ class OpportunityZoneService {
         }
       }
 
+      // Save to Redis as backup
+      await redisService.saveOpportunityZoneCache(this.cache)
+
       log("success", `✅ Refresh complete. Loaded ${geoJson.features.length} features`)
     } catch (error) {
       log("error", `❌ Refresh failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
@@ -196,9 +200,20 @@ class OpportunityZoneService {
     }
 
     this.isInitializing = true
-    this.initPromise = this.refresh(log)
-
+    
     try {
+      // Try to load from Redis first
+      log("info", "🔍 Checking Redis for cached data...")
+      const redisCache = await redisService.getOpportunityZoneCache()
+      
+      if (redisCache && new Date() < redisCache.metadata.nextRefreshDue) {
+        log("success", "✅ Loaded data from Redis cache")
+        this.cache = redisCache
+        return
+      }
+
+      // If Redis cache is missing or expired, refresh from source
+      this.initPromise = this.refresh(log)
       await this.initPromise
     } finally {
       this.isInitializing = false
