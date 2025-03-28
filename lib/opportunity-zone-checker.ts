@@ -161,35 +161,27 @@ function optimizeGeoJson(geoJson: any) {
 
 export async function checkPointInPolygon(lat: number, lon: number, log: LogFn = defaultLog): Promise<boolean> {
   try {
-    const geoJson = await loadOpportunityZones(log);
-    const pt = point([lon, lat]);
+    log("info", "🔍 Checking coordinates against API endpoint");
     
-    // Create or get cached spatial index
-    if (!geoJson.spatialIndex) {
-      log("info", "Creating spatial index for faster lookups");
-      geoJson.spatialIndex = createSpatialIndex(geoJson);
+    const response = await fetch('/api/opportunity-zones/check', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': process.env.NEXT_PUBLIC_WEB_APP_API_KEY!
+      },
+      body: JSON.stringify({ lat, lon })
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      log("error", `❌ API error: ${error}`);
+      throw new Error(`API error: ${error}`);
     }
+
+    const data = await response.json();
+    log("success", `✅ API response received: ${data.isInZone ? 'In Zone' : 'Not in Zone'}`);
     
-    // Search only nearby features
-    const searchBBox = {
-      minX: lon - 0.1,
-      minY: lat - 0.1,
-      maxX: lon + 0.1,
-      maxY: lat + 0.1
-    };
-    
-    const candidateFeatures = geoJson.spatialIndex.search(searchBBox);
-    log("info", `🔍 Checking point against ${candidateFeatures.length} nearby polygons (filtered from ${geoJson.features.length})`);
-    
-    for (const item of candidateFeatures) {
-      if (booleanPointInPolygon(pt, item.feature.geometry)) {
-        log("success", `✅ Point is inside opportunity zone! Feature ID: ${item.feature.id || item.feature.properties?.GEOID || item.index}`);
-        return true;
-      }
-    }
-    
-    log("info", "❌ Point is not in any opportunity zone");
-    return false;
+    return data.isInZone;
   } catch (error: any) {
     log("error", `❌ Error checking point in polygon: ${error?.message || 'Unknown error'}`);
     throw error;

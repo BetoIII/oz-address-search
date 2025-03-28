@@ -21,64 +21,39 @@ export function AddressSearchForm() {
   const { addLog, clearLogs } = useLogs()
   const preloadTimeoutRef = useRef<NodeJS.Timeout>()
 
-  // Debounced preload function
+  // Remove the preload functionality since we're using the API now
   const handleAddressChange = useCallback((newAddress: string) => {
-    setAddress(newAddress)
-
-    // Clear any existing timeout
-    if (preloadTimeoutRef.current) {
-      clearTimeout(preloadTimeoutRef.current)
-    }
-
-    // Start preloading after user has typed at least 5 characters and paused for 500ms
-    if (newAddress.length >= 5) {
-      preloadTimeoutRef.current = setTimeout(() => {
-        addLog("info", "🔄 Preloading opportunity zone data...")
-        preloadOpportunityZones(addLog).catch(() => {
-          // Ignore preload errors - we'll handle them during the actual check
-        })
-      }, 500)
-    }
-  }, [addLog])
-
-  // Cleanup timeout on unmount
-  useEffect(() => {
-    return () => {
-      if (preloadTimeoutRef.current) {
-        clearTimeout(preloadTimeoutRef.current)
-      }
-    }
-  }, [])
+    setAddress(newAddress);
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
+    e.preventDefault();
 
-    if (!address.trim()) return
+    if (!address.trim()) return;
 
-    setIsLoading(true)
-    setResult(null)
-    clearLogs() // Clear previous logs
+    setIsLoading(true);
+    setResult(null);
+    clearLogs();
 
     try {
-      addLog("info", "🚀 Starting new address search...")
-      const response = await checkAddressInOpportunityZone(address)
+      addLog("info", "🚀 Starting new address search...");
+      const response = await checkAddressInOpportunityZone(address);
       
-      // Process logs from server
       if (response.logs && response.logs.length > 0) {
         response.logs.forEach(log => {
-          addLog(log.type, log.message)
-        })
+          addLog(log.type, log.message);
+        });
       }
       
-      setResult(response)
+      setResult(response);
     } catch (error) {
-      addLog("error", `An unexpected error occurred: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      addLog("error", `An unexpected error occurred: ${error instanceof Error ? error.message : 'Unknown error'}`);
       setResult({
         isInZone: null,
         error: "An unexpected error occurred. Please try again.",
-      })
+      });
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
   }
 
