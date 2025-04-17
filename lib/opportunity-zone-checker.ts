@@ -163,7 +163,10 @@ export async function checkPointInPolygon(lat: number, lon: number, log: LogFn =
   try {
     log("info", "🔍 Checking coordinates against API endpoint");
     
-    const response = await fetch('/api/opportunity-zones/check', {
+    const baseUrl = process.env.NEXT_PUBLIC_WEB_APP_URL || 'http://localhost:3000';
+    const apiUrl = `${baseUrl}/api/opportunity-zones/check`;
+    
+    const response = await fetch(apiUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, ReactNode, useState } from "react";
+import React, { createContext, useContext, ReactNode, useState, useCallback } from "react";
 
 interface LogEntry {
   type: "info" | "success" | "warning" | "error";
@@ -19,7 +19,7 @@ const LogsContext = createContext<LogsContextType | undefined>(undefined);
 export function LogsProvider({ children }: { children: ReactNode }) {
   const [logs, setLogs] = useState<LogEntry[]>([]);
 
-  const addLog = (type: LogEntry["type"], message: string) => {
+  const addLog = useCallback((type: LogEntry["type"], message: string) => {
     // Remove any sensitive data patterns
     const sanitizedMessage = message
       .replace(/api_key=([^&]+)/gi, "api_key=***") // Hide API keys
@@ -35,11 +35,11 @@ export function LogsProvider({ children }: { children: ReactNode }) {
         timestamp: new Date().toISOString(),
       },
     ]);
-  };
+  }, []); // Empty dependency array since it doesn't depend on any props or state
 
-  const clearLogs = () => {
+  const clearLogs = useCallback(() => {
     setLogs([]);
-  };
+  }, []); // Empty dependency array since it doesn't depend on any props or state
 
   return (
     <LogsContext.Provider value={{ logs, addLog, clearLogs }}>
