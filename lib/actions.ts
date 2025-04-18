@@ -1,6 +1,6 @@
 "use server"
 
-import { checkPointInPolygon } from "./opportunity-zone-checker"
+import { opportunityZoneService } from "./services/opportunity-zones"
 
 interface GeocodeResponse {
   lat: string
@@ -79,9 +79,9 @@ export async function checkAddressInOpportunityZone(address: string): Promise<Ch
     // Step 2: Check if the point is in any opportunity zone using our API
     try {
       log("info", `🔍 Checking coordinates against opportunity zones API`);
-      const isInZone = await checkPointInPolygon(Number.parseFloat(lat), Number.parseFloat(lon), log);
-      log("success", `🏁 Opportunity zone check result: ${isInZone ? "YES - In Zone" : "NO - Not in Zone"}`);
-      return { isInZone, logs };
+      const result = await opportunityZoneService.checkPoint(Number.parseFloat(lat), Number.parseFloat(lon), log);
+      log("success", `🏁 Opportunity zone check result: ${result.isInZone ? "YES - In Zone" : "NO - Not in Zone"}`);
+      return { isInZone: result.isInZone, logs };
     } catch (error) {
       // Handle rate limiting errors specifically
       if (error instanceof Error && error.message.includes('rate limit')) {

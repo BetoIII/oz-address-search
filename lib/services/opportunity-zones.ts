@@ -65,7 +65,7 @@ class OpportunityZoneService {
   }
 
   private async loadOpportunityZones(log: LogFn = defaultLog): Promise<any> {
-    const url = process.env.OPPORTUNITY_ZONES_URL
+    const url = process.env.NEXT_PUBLIC_OPPORTUNITY_ZONES_URL
     
     if (!url) {
       throw new Error('Opportunity zones URL not configured')

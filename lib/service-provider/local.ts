@@ -1,5 +1,5 @@
 import { checkAddressInOpportunityZone } from "@/lib/actions";
-import { preloadOpportunityZones } from "@/lib/opportunity-zone-checker";
+import { opportunityZoneService } from "@/lib/services/opportunity-zones";
 import type { 
   OpportunityZoneService, 
   CheckAddressResult,
@@ -18,7 +18,7 @@ export class LocalOpportunityZoneService implements OpportunityZoneService {
   
   async preloadData(): Promise<boolean> {
     try {
-      await preloadOpportunityZones();
+      await opportunityZoneService.initialize();
       this.initialized = true;
       return true;
     } catch (error) {
