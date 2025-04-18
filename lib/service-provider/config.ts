@@ -16,7 +16,6 @@ const LocalConfigSchema = z.object({
 
 // Combined configuration schema
 const ServiceConfigSchema = z.object({
-  defaultService: z.enum(['local', 'mcp']).default('local'),
   mcp: MCPConfigSchema,
   local: LocalConfigSchema,
 });
@@ -28,7 +27,6 @@ export type ServiceConfig = z.infer<typeof ServiceConfigSchema>;
 
 // Default configuration
 const defaultConfig: ServiceConfig = {
-  defaultService: 'local',
   mcp: {
     serverUrl: process.env.MCP_API_URL || 'http://localhost:3000',
     apiKey: process.env.MCP_API_KEY,
