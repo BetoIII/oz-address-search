@@ -24,7 +24,10 @@ interface CacheStatus {
 
 async function testCacheStatus() {
   const API_URL = 'http://localhost:3000/api/opportunity-zones/status'
-  const API_KEY = process.env.WEB_APP_API_KEY || 'test_api_key_123'
+  const API_KEY = process.env.TEST_API_KEY || process.env.WEB_APP_API_KEY
+  if (!API_KEY) {
+    throw new Error('TEST_API_KEY or WEB_APP_API_KEY environment variable is required')
+  }
 
   console.log('🔍 Testing cache status endpoint...')
 
