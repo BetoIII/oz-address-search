@@ -3,9 +3,8 @@ import '@/app/globals.css'
 import { LogsProvider } from "@/lib/logs-context"
 
 export const metadata: Metadata = {
-  title: 'v0 App',
-  description: 'Created with v0',
-  generator: 'v0.dev',
+  title: 'Opportunity Zone Search',
+  description: 'Check if an address is in an opportunity zone',
 }
 
 export default function RootLayout({
@@ -15,7 +14,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className="min-h-screen bg-white">
+      <body className="min-h-screen bg-gray-50">
         <LogsProvider>
           {children}
         </LogsProvider>

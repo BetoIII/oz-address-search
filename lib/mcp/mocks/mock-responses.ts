@@ -5,7 +5,8 @@ import type { GeocodingResult, OpportunityZoneCheck } from '../services';
 const SAMPLE_OZ_ADDRESSES = [
   '123 Enterprise Zone, Business District, CA 90001',
   '456 Development Ave, Growth City, NY 10001',
-  '789 Opportunity Blvd, Investment Town, TX 75001'
+  '789 Opportunity Blvd, Investment Town, TX 75001',
+  '321 Test Drive, Innovation Hub, CA 94105'
 ];
 
 // Mock coordinates for different regions
@@ -35,63 +36,38 @@ function getMockCoordinates(address: string): { lat: number; lon: number } {
 
 export const mockResponses = {
   // Mock geocoding response
-  async geocodeAddress(address: string): Promise<MCPResponse<GeocodingResult>> {
+  async geocodeAddress(address: string): Promise<GeocodingResult> {
     await delay(500); // Simulate network delay
 
     const coordinates = getMockCoordinates(address);
     
     return {
-      data: {
-        lat: coordinates.lat,
-        lon: coordinates.lon,
-        display_name: address
-      },
-      logs: [
-        { type: "info", message: "🔍 Geocoding address..." },
-        { type: "success", message: "✅ Address successfully geocoded" }
-      ]
+      lat: coordinates.lat,
+      lon: coordinates.lon,
+      display_name: address
     };
   },
 
   // Mock opportunity zone check response
-  async checkAddress(address: string): Promise<MCPResponse<OpportunityZoneCheck>> {
+  async checkAddress(address: string): Promise<OpportunityZoneCheck> {
     await delay(1000); // Simulate network delay
 
     const coordinates = getMockCoordinates(address);
     const isInZone = isInOpportunityZone(address);
 
     return {
-      data: {
-        isInZone,
-        address,
-        coordinates
-      },
-      logs: [
-        { type: "info", message: "🔍 Processing address..." },
-        { type: "info", message: "📍 Geocoding successful" },
-        { type: "info", message: `🎯 Checking coordinates: (${coordinates.lat}, ${coordinates.lon})` },
-        { 
-          type: isInZone ? "success" : "info",
-          message: isInZone 
-            ? "✅ Location is in an Opportunity Zone" 
-            : "ℹ️ Location is not in an Opportunity Zone"
-        }
-      ]
+      isInZone,
+      address,
+      coordinates
     };
   },
 
   // Mock preload data response
-  async preloadData(): Promise<MCPResponse<{ status: string }>> {
+  async preloadData(): Promise<{ status: string }> {
     await delay(300); // Simulate network delay
 
     return {
-      data: {
-        status: "success"
-      },
-      logs: [
-        { type: "info", message: "🔄 Preloading opportunity zone data..." },
-        { type: "success", message: "✅ Data preloaded successfully" }
-      ]
+      status: "success"
     };
   }
 }; 

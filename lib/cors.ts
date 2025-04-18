@@ -3,9 +3,14 @@ import type { NextRequest } from 'next/server'
 
 // Get allowed origins from environment variables or use defaults for development
 const getAllowedOrigins = () => {
-  const webAppOrigin = process.env.NEXT_PUBLIC_WEB_APP_URL || 'http://localhost:3000'
-  const mcpServerOrigin = process.env.MCP_SERVER_URL || 'http://localhost:8000'
-  return new Set([webAppOrigin, mcpServerOrigin])
+  const webAppUrl = process.env.NEXT_PUBLIC_WEB_APP_URL
+  const mcpServerUrl = process.env.NEXT_PUBLIC_MCP_SERVER_URL
+
+  if (process.env.NODE_ENV === 'development') {
+    return ['http://localhost:3000', 'http://localhost:8000']
+  }
+
+  return [webAppUrl, mcpServerUrl].filter(Boolean) as string[]
 }
 
 export function cors(response: NextResponse) {
