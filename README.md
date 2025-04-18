@@ -120,4 +120,4 @@ If you encounter any issues or have questions, please file an issue on the GitHu
 
 - Thanks to all contributors who have helped shape this project
 - Built with [shadcn/ui](https://ui.shadcn.com/) components
-- Mapping functionality powered by various geospatial libraries 
+- Mapping functionality powered by various geospatial libraries
