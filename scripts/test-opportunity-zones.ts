@@ -109,8 +109,12 @@ async function testErrorCases() {
 
 async function testRateLimiting() {
   const API_URL = 'http://localhost:3000/api/opportunity-zones/check'
-  const WEB_APP_KEY = process.env.WEB_APP_API_KEY || 'test_api_key_123'
-  const MCP_SERVER_KEY = process.env.MCP_SERVER_API_KEY || 'mcp_test_api_key_456'
+  const WEB_APP_KEY = process.env.TEST_WEB_APP_KEY || process.env.WEB_APP_API_KEY;
+  const MCP_SERVER_KEY = process.env.TEST_MCP_SERVER_KEY || process.env.MCP_SERVER_API_KEY;
+
+  if (!WEB_APP_KEY || !MCP_SERVER_KEY) {
+    throw new Error('TEST_WEB_APP_KEY/WEB_APP_API_KEY and TEST_MCP_SERVER_KEY/MCP_SERVER_API_KEY environment variables are required');
+  }
 
   console.log('🔒 Testing rate limiting...')
 
