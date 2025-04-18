@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState, useCallback, useEffect } from "react"
+import { useState, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -10,59 +10,17 @@ import { SearchIcon, Loader2 } from "lucide-react"
 import { ResultDisplay } from "@/components/result-display"
 import { LogDisplay } from "@/components/log-display"
 import { useLogs } from "@/lib/logs-context"
-import { initializeMCPClient } from "@/lib/mcp/client"
-import { loadMCPConfig, DEFAULT_MCP_CONFIG } from "@/lib/mcp/config"
-import OpportunityZoneService from "@/lib/mcp/service-factory"
+import { getOpportunityZoneService } from "@/lib/service-provider/factory"
+import { updateConfig } from "@/lib/service-provider/config"
 
 export function AddressSearchForm() {
   const [address, setAddress] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [result, setResult] = useState<{ isInZone: boolean | null; error?: string } | null>(null)
   const { addLog, clearLogs } = useLogs()
-  const [isInitialized, setIsInitialized] = useState(false)
-
-  // Initialize MCP client
-  useEffect(() => {
-    let isMounted = true;
-
-    const initMCP = async () => {
-      if (isInitialized) return;
-
-      try {
-        const config = loadMCPConfig();
-        const client = initializeMCPClient(config);
-        const initialized = await client.initialize();
-        
-        if (!isMounted) return;
-
-        if (initialized) {
-          setIsInitialized(true);
-        } else {
-          console.error("Failed to initialize MCP client. Using fallback configuration.");
-          initializeMCPClient(DEFAULT_MCP_CONFIG);
-        }
-      } catch (error) {
-        if (!isMounted) return;
-        
-        console.error("MCP initialization error:", error);
-        initializeMCPClient(DEFAULT_MCP_CONFIG);
-      }
-    };
-
-    initMCP();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!isInitialized) {
-      addLog("warning", "Using fallback configuration. Some features may be limited.");
-    }
-  }, [isInitialized, addLog]);
 
   const handleAddressChange = useCallback((newAddress: string) => {
+    console.log('Address changed:', newAddress); // Debug log
     setAddress(newAddress);
   }, []);
 
@@ -78,27 +36,32 @@ export function AddressSearchForm() {
     try {
       addLog("info", "🚀 Starting new address search...");
       
-      const response = await OpportunityZoneService.checkAddress(address);
+      // Get the service instance (defaults to local if not configured)
+      const service = await getOpportunityZoneService();
+      
+      // Check the address
+      const response = await service.checkAddress(address);
       
       if (response.error) {
         throw new Error(response.error);
       }
 
+      // Add any logs from the service
       if (response.logs) {
         response.logs.forEach(log => {
           addLog(log.type, log.message);
         });
       }
 
-      if (response.data) {
-        setResult({
-          isInZone: response.data.isInZone,
-          error: undefined
-        });
-        
-        if (response.data.coordinates) {
-          addLog("success", `📍 Found coordinates: (${response.data.coordinates.lat}, ${response.data.coordinates.lon})`);
-        }
+      setResult({
+        isInZone: response.isInZone,
+        error: undefined
+      });
+
+      // Try to get geocoding information
+      const geocoding = await service.geocodeAddress(address);
+      if (geocoding) {
+        addLog("success", `📍 Found coordinates: (${geocoding.lat}, ${geocoding.lon})`);
       }
     } catch (error) {
       addLog("error", `An unexpected error occurred: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -120,14 +83,6 @@ export function AddressSearchForm() {
         </p>
       </div>
 
-      {!isInitialized && (
-        <Alert>
-          <AlertDescription>
-            Using fallback configuration. Some features may be limited.
-          </AlertDescription>
-        </Alert>
-      )}
-
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="space-y-2">
           <Label htmlFor="address">Address</Label>
@@ -135,7 +90,7 @@ export function AddressSearchForm() {
             id="address"
             placeholder="123 Main St, City, State, ZIP"
             value={address}
-            onChange={(e) => handleAddressChange(e.target.value)}
+            onChange={(e) => setAddress(e.target.value)}
             className="w-full"
             disabled={isLoading}
           />
@@ -145,6 +100,7 @@ export function AddressSearchForm() {
           type="submit" 
           className="w-full" 
           disabled={isLoading || !address.trim()}
+          onClick={() => console.log('Button state:', { isLoading, address, trimmed: address.trim(), isDisabled: isLoading || !address.trim() })}
         >
           {isLoading ? (
             <>

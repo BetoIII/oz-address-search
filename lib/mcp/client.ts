@@ -1,13 +1,19 @@
 import { z } from 'zod';
 
 // Types for MCP responses
-export interface MCPResponse<T> {
-  data: T;
+export interface MCPResponse {
+  isInZone: boolean;
   error?: string;
   logs?: Array<{
-    type: "info" | "success" | "warning" | "error";
+    type: string;
     message: string;
   }>;
+}
+
+export interface GeocodingResponse {
+  lat: number;
+  lon: number;
+  display_name?: string;
 }
 
 // Validation schemas for MCP responses
@@ -30,53 +36,78 @@ export interface MCPConfig {
 
 // MCP client class
 export class MCPClient {
-  private config: MCPConfig;
+  private baseUrl: string;
+  private apiKey: string;
 
-  constructor(config: MCPConfig) {
-    this.config = config;
+  constructor(baseUrl?: string, apiKey?: string) {
+    this.baseUrl = baseUrl || process.env.MCP_API_URL || 'http://localhost:3000';
+    this.apiKey = apiKey || process.env.MCP_API_KEY || '';
   }
 
-  async makeRequest<T>(
-    endpoint: string,
-    method: 'GET' | 'POST' = 'POST',
-    body?: any
-  ): Promise<MCPResponse<T>> {
+  async initialize(): Promise<void> {
+    // Verify connection and API key
     try {
-      const response = await fetch(`${this.config.serverUrl}${endpoint}`, {
-        method,
+      const response = await fetch(`${this.baseUrl}/health`, {
+        headers: {
+          'Authorization': `Bearer ${this.apiKey}`
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to initialize MCP client: ${response.statusText}`);
+      }
+    } catch (error) {
+      throw new Error(`Failed to connect to MCP service: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  async checkAddress(address: string): Promise<MCPResponse> {
+    try {
+      const response = await fetch(`${this.baseUrl}/api/check-address`, {
+        method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(this.config.apiKey && { 'Authorization': `Bearer ${this.config.apiKey}` })
+          'Authorization': `Bearer ${this.apiKey}`
         },
-        ...(body && { body: JSON.stringify(body) })
+        body: JSON.stringify({ address })
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`Failed to check address: ${response.statusText}`);
       }
 
-      const data = await response.json();
-      return data as MCPResponse<T>;
+      return await response.json();
     } catch (error) {
       return {
-        data: null as T,
+        isInZone: false,
         error: error instanceof Error ? error.message : 'Unknown error occurred',
         logs: [{
           type: 'error',
-          message: 'Failed to communicate with MCP server'
+          message: 'Failed to check address with MCP service'
         }]
       };
     }
   }
 
-  // Initialize connection with MCP server
-  async initialize(): Promise<boolean> {
+  async geocodeAddress(address: string): Promise<GeocodingResponse | null> {
     try {
-      const response = await this.makeRequest<{ status: string }>('/health');
-      return !response.error;
+      const response = await fetch(`${this.baseUrl}/api/geocode`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.apiKey}`
+        },
+        body: JSON.stringify({ address })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to geocode address: ${response.statusText}`);
+      }
+
+      return await response.json();
     } catch (error) {
-      console.error('Failed to initialize MCP client:', error);
-      return false;
+      console.error('Failed to geocode address:', error);
+      return null;
     }
   }
 }
@@ -86,7 +117,7 @@ let mcpClient: MCPClient | null = null;
 
 export function initializeMCPClient(config: MCPConfig): MCPClient {
   if (!mcpClient) {
-    mcpClient = new MCPClient(config);
+    mcpClient = new MCPClient(config.serverUrl, config.apiKey);
   }
   return mcpClient;
 }

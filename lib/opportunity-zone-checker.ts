@@ -21,6 +21,9 @@ const MAX_RETRIES = 3;
 const TIMEOUT_MS = 30000; // 30 seconds
 const RETRY_DELAYS = [1000, 3000, 5000]; // Delays between retries in milliseconds
 
+// Add type for coordinates
+type Coordinate = [number, number];
+
 async function fetchWithTimeout(url: string, timeoutMs: number, log: LogFn = defaultLog): Promise<Response> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -116,10 +119,10 @@ function calculateBBox(geometry: any) {
 
   function processGeometry(geom: any) {
     if (geom.type === 'Polygon') {
-      geom.coordinates[0].forEach(processCoordinates);
+      geom.coordinates[0].forEach((coord: Coordinate) => processCoordinates(coord));
     } else if (geom.type === 'MultiPolygon') {
-      geom.coordinates.forEach(polygon => 
-        polygon[0].forEach(processCoordinates)
+      geom.coordinates.forEach((polygon: Coordinate[][]) => 
+        polygon[0].forEach((coord: Coordinate) => processCoordinates(coord))
       );
     }
   }
@@ -128,8 +131,18 @@ function calculateBBox(geometry: any) {
   return [minX, minY, maxX, maxY];
 }
 
+// Add type for RBush item
+interface RBushItem {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+  feature: any;
+  index: number;
+}
+
 function createSpatialIndex(geoJson: any) {
-  const tree = new RBush();
+  const tree = new RBush<RBushItem>();
   const items = geoJson.features.map((feature: any, index: number) => {
     const bbox = feature.bbox || calculateBBox(feature.geometry);
     return {
@@ -161,30 +174,37 @@ function optimizeGeoJson(geoJson: any) {
 
 export async function checkPointInPolygon(lat: number, lon: number, log: LogFn = defaultLog): Promise<boolean> {
   try {
-    log("info", "🔍 Checking coordinates against API endpoint");
+    log("info", "🔍 Checking coordinates against opportunity zones");
     
-    const baseUrl = process.env.NEXT_PUBLIC_WEB_APP_URL || 'http://localhost:3000';
-    const apiUrl = `${baseUrl}/api/opportunity-zones/check`;
+    // Load opportunity zones if not already loaded
+    const geoJson = await loadOpportunityZones(log);
     
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-API-Key': process.env.NEXT_PUBLIC_WEB_APP_API_KEY!
-      },
-      body: JSON.stringify({ lat, lon })
-    });
-
-    if (!response.ok) {
-      const error = await response.text();
-      log("error", `❌ API error: ${error}`);
-      throw new Error(`API error: ${error}`);
+    // Create a point from the coordinates
+    const pt = point([lon, lat]);
+    
+    // Create spatial index if not already created
+    const spatialIndex = createSpatialIndex(geoJson);
+    
+    // Find potential matches using the spatial index
+    const searchBBox = {
+      minX: lon - 0.1, // Add small buffer for search
+      minY: lat - 0.1,
+      maxX: lon + 0.1,
+      maxY: lat + 0.1
+    };
+    
+    const potentialMatches = spatialIndex.search(searchBBox) as RBushItem[];
+    
+    // Check each potential match
+    for (const item of potentialMatches) {
+      if (booleanPointInPolygon(pt, item.feature)) {
+        log("success", "✅ Location is within an opportunity zone");
+        return true;
+      }
     }
-
-    const data = await response.json();
-    log("success", `✅ API response received: ${data.isInZone ? 'In Zone' : 'Not in Zone'}`);
     
-    return data.isInZone;
+    log("success", "✅ Location is not within any opportunity zone");
+    return false;
   } catch (error: any) {
     log("error", `❌ Error checking point in polygon: ${error?.message || 'Unknown error'}`);
     throw error;
