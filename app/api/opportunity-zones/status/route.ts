@@ -1,10 +1,9 @@
 import { NextResponse } from 'next/server'
 import { opportunityZoneService } from '@/lib/services/opportunity-zones'
-import { redisService } from '@/lib/services/redis'
 import { cors } from '@/lib/cors'
 
 interface CacheStatus {
-  memory: {
+  cache: {
     isAvailable: boolean
     lastUpdated?: string
     nextRefreshDue?: string
@@ -12,14 +11,9 @@ interface CacheStatus {
     version?: string
     dataHash?: string
   }
-  redis: {
-    isConnected: boolean
-    isAvailable: boolean
-    lastUpdated?: string
-    nextRefreshDue?: string
-    featureCount?: number
-    version?: string
-    dataHash?: string
+  externalStorage: {
+    url: string
+    accessible: boolean
   }
   system: {
     timestamp: string
@@ -41,28 +35,30 @@ export async function GET(request: Request) {
     }
 
     // Get memory cache metrics
-    const memoryMetrics = opportunityZoneService.getCacheMetrics()
+    const cacheMetrics = opportunityZoneService.getCacheMetrics()
     
-    // Get Redis cache status
-    const redisCache = await redisService.getOpportunityZoneCache()
+    // Test external storage accessibility
+    const externalUrl = 'https://pub-757ceba6f52a4399beb76c4667a53f08.r2.dev/oz-all.geojson'
+    let storageAccessible = false
+    try {
+      const testResponse = await fetch(externalUrl, { method: 'HEAD' })
+      storageAccessible = testResponse.ok
+    } catch {
+      storageAccessible = false
+    }
 
     const status: CacheStatus = {
-      memory: {
-        isAvailable: memoryMetrics.isInitialized,
-        lastUpdated: memoryMetrics.lastUpdated?.toISOString(),
-        nextRefreshDue: memoryMetrics.nextRefreshDue?.toISOString(),
-        featureCount: memoryMetrics.featureCount,
-        version: memoryMetrics.version,
-        dataHash: memoryMetrics.dataHash
+      cache: {
+        isAvailable: cacheMetrics.isInitialized,
+        lastUpdated: cacheMetrics.lastUpdated?.toISOString(),
+        nextRefreshDue: cacheMetrics.nextRefreshDue?.toISOString(),
+        featureCount: cacheMetrics.featureCount,
+        version: cacheMetrics.version,
+        dataHash: cacheMetrics.dataHash
       },
-      redis: {
-        isConnected: redisService.isConnected(),
-        isAvailable: !!redisCache,
-        lastUpdated: redisCache?.metadata.lastUpdated.toISOString(),
-        nextRefreshDue: redisCache?.metadata.nextRefreshDue.toISOString(),
-        featureCount: redisCache?.metadata.featureCount,
-        version: redisCache?.metadata.version,
-        dataHash: redisCache?.metadata.dataHash
+      externalStorage: {
+        url: externalUrl,
+        accessible: storageAccessible
       },
       system: {
         timestamp: new Date().toISOString(),

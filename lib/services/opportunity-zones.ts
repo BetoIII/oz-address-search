@@ -1,14 +1,12 @@
 import RBush from 'rbush'
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon'
 import { point } from '@turf/helpers'
-import { redisService } from './redis'
 
 // Type for the log function
 type LogFn = (type: "info" | "success" | "warning" | "error", message: string) => void;
 
-// Default log function that just uses console
 const defaultLog: LogFn = (type, message) => {
-  console.log(`[${type}] ${message}`);
+  console.log(`[${type.toUpperCase()}] ${message}`)
 };
 
 interface SpatialIndexMetadata {
@@ -55,26 +53,22 @@ class OpportunityZoneService {
     return OpportunityZoneService.instance
   }
 
-  private async calculateDataHash(data: any): Promise<string> {
-    const stringified = JSON.stringify(data)
-    const encoder = new TextEncoder()
-    const buffer = encoder.encode(stringified)
-    const hashBuffer = await crypto.subtle.digest('SHA-256', buffer)
-    const hashArray = Array.from(new Uint8Array(hashBuffer))
-    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+  private startRefreshChecker() {
+    this.refreshInterval = setInterval(() => {
+      if (this.cache && new Date() >= this.cache.metadata.nextRefreshDue) {
+        this.refresh().catch(console.error)
+      }
+    }, this.REFRESH_CHECK_INTERVAL)
   }
 
   private async loadOpportunityZones(log: LogFn = defaultLog): Promise<any> {
-    const url = process.env.NEXT_PUBLIC_OPPORTUNITY_ZONES_URL
+    // Use the external storage URL directly
+    const url = 'https://pub-757ceba6f52a4399beb76c4667a53f08.r2.dev/oz-all.geojson'
     
-    if (!url) {
-      throw new Error('Opportunity zones URL not configured')
-    }
-    
-    log("info", `🔗 Fetching opportunity zones data from ${url}`)
+    log("info", `🔗 Fetching opportunity zones data from external storage: ${url}`)
     const response = await fetch(url, {
       headers: {
-        'Cache-Control': 'max-age=3600' // Cache for 1 hour
+        'Cache-Control': 'no-cache' // Always fetch fresh data
       }
     })
 
@@ -98,7 +92,7 @@ class OpportunityZoneService {
         type: 'Feature',
         geometry: feature.geometry,
         properties: {
-          GEOID: feature.properties?.GEOID
+          GEOID: feature.properties?.GEOID || feature.properties?.CENSUSTRAC
         }
       }))
     }
@@ -149,44 +143,28 @@ class OpportunityZoneService {
     return tree
   }
 
-  private startRefreshChecker() {
-    // Clear any existing interval
-    if (this.refreshInterval) {
-      clearInterval(this.refreshInterval)
-    }
-
-    // Set up periodic refresh check
-    this.refreshInterval = setInterval(async () => {
-      try {
-        if (this.cache && new Date() >= this.cache.metadata.nextRefreshDue) {
-          await this.refresh(defaultLog)
-        }
-      } catch (error) {
-        console.error('Error in refresh check:', error)
-      }
-    }, this.REFRESH_CHECK_INTERVAL)
-
-    // Ensure the interval doesn't prevent the process from exiting
-    if (this.refreshInterval.unref) {
-      this.refreshInterval.unref()
-    }
+  private async calculateDataHash(geoJson: any): Promise<string> {
+    const data = JSON.stringify(geoJson)
+    const encoder = new TextEncoder()
+    const dataBuffer = encoder.encode(data)
+    const hashBuffer = await crypto.subtle.digest('SHA-256', dataBuffer)
+    const hashArray = Array.from(new Uint8Array(hashBuffer))
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
   }
 
   private async refresh(log: LogFn = defaultLog): Promise<void> {
-    log("info", "🔄 Refreshing opportunity zone data...")
+    log("info", "🔄 Refreshing opportunity zone data from external storage...")
     
     try {
-      // First, try to get data from Redis
-      const cachedData = await redisService.getOpportunityZoneCache()
-      
-      // Load fresh data
+      // Load fresh data from external storage
       const geoJson = await this.loadOpportunityZones(log)
       const dataHash = await this.calculateDataHash(geoJson)
       
       // Check if data has changed
-      if (cachedData?.metadata.dataHash === dataHash) {
-        log("info", "📦 Data unchanged, using cached version")
-        this.cache = cachedData
+      if (this.cache?.metadata.dataHash === dataHash) {
+        log("info", "📦 Data unchanged, updating cache timestamps")
+        this.cache.metadata.lastUpdated = new Date()
+        this.cache.metadata.nextRefreshDue = new Date(Date.now() + this.REFRESH_INTERVAL)
         return
       }
 
@@ -203,9 +181,6 @@ class OpportunityZoneService {
           dataHash
         }
       }
-
-      // Save to Redis as backup
-      await redisService.saveOpportunityZoneCache(this.cache)
 
       log("success", `✅ Refresh complete. Loaded ${geoJson.features.length} features`)
     } catch (error) {
@@ -226,20 +201,9 @@ class OpportunityZoneService {
     }
 
     this.isInitializing = true
+    this.initPromise = this.refresh(log)
     
     try {
-      // Try to load from Redis first
-      log("info", "🔍 Checking Redis for cached data...")
-      const redisCache = await redisService.getOpportunityZoneCache()
-      
-      if (redisCache && new Date() < redisCache.metadata.nextRefreshDue) {
-        log("success", "✅ Loaded data from Redis cache")
-        this.cache = redisCache
-        return
-      }
-
-      // If Redis cache is missing or expired, refresh from source
-      this.initPromise = this.refresh(log)
       await this.initPromise
     } finally {
       this.isInitializing = false
@@ -311,7 +275,14 @@ class OpportunityZoneService {
   async forceRefresh(log: LogFn = defaultLog): Promise<void> {
     await this.refresh(log)
   }
+
+  // Clean up method
+  destroy() {
+    if (this.refreshInterval) {
+      clearInterval(this.refreshInterval)
+      this.refreshInterval = null
+    }
+  }
 }
 
-// Export a singleton instance
 export const opportunityZoneService = OpportunityZoneService.getInstance() 

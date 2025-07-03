@@ -1,20 +1,17 @@
 import fetch from 'node-fetch'
 
 interface CacheStatus {
-  memory: {
+  cache: {
     isAvailable: boolean
     lastUpdated?: string
     nextRefreshDue?: string
     featureCount?: number
     version?: string
+    dataHash?: string
   }
-  redis: {
-    isConnected: boolean
-    isAvailable: boolean
-    lastUpdated?: string
-    nextRefreshDue?: string
-    featureCount?: number
-    version?: string
+  externalStorage: {
+    url: string
+    accessible: boolean
   }
   system: {
     timestamp: string
@@ -46,19 +43,22 @@ async function testCacheStatus() {
     const status = await response.json() as CacheStatus
     console.log('\n📊 Cache Status:')
     console.log('Memory Cache:', {
-      isAvailable: status.memory.isAvailable,
-      featureCount: status.memory.featureCount,
-      lastUpdated: status.memory.lastUpdated,
-      nextRefreshDue: status.memory.nextRefreshDue
+      isAvailable: status.cache.isAvailable,
+      featureCount: status.cache.featureCount,
+      lastUpdated: status.cache.lastUpdated,
+      nextRefreshDue: status.cache.nextRefreshDue,
+      dataHash: status.cache.dataHash?.substring(0, 8) + '...' // Show first 8 chars
     })
-    console.log('Redis Cache:', {
-      isConnected: status.redis.isConnected,
-      isAvailable: status.redis.isAvailable,
-      featureCount: status.redis.featureCount,
-      lastUpdated: status.redis.lastUpdated,
-      nextRefreshDue: status.redis.nextRefreshDue
+    console.log('External Storage:', {
+      url: status.externalStorage.url,
+      accessible: status.externalStorage.accessible
     })
     console.log('System:', status.system)
+
+    // Validate expected structure
+    if (!status.cache || !status.externalStorage || !status.system) {
+      throw new Error('Invalid status response structure')
+    }
 
     // Test with invalid API key
     console.log('\n🔒 Testing authentication...')
@@ -74,10 +74,13 @@ async function testCacheStatus() {
       console.log('❌ Authentication check failed')
     }
 
+    console.log('\n✅ Cache status test completed successfully')
+
   } catch (error) {
     console.error('❌ Error:', error)
     process.exit(1)
   }
 }
 
+// Run the test
 testCacheStatus().catch(console.error) 

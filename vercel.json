@@ -7,6 +7,14 @@
     "app/api/**/*": {
       "memory": 1024,
       "maxDuration": 10
+    },
+    "app/api/opportunity-zones/refresh/route.ts": {
+      "memory": 3008,
+      "maxDuration": 300
+    },
+    "app/api/opportunity-zones/warmup/route.ts": {
+      "memory": 3008,
+      "maxDuration": 300
     }
   },
   "crons": [
