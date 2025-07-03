@@ -1,5 +1,4 @@
 import { opportunityZoneService } from './services/opportunity-zones'
-import { redisService } from './services/redis'
 
 interface InitOptions {
   skipCacheWarm?: boolean
@@ -15,32 +14,10 @@ const DEFAULT_OPTIONS: Required<InitOptions> = {
 
 async function warmCache(retries = 0, maxRetries: number, retryDelay: number): Promise<void> {
   try {
-    console.log('🔥 Warming up cache...')
+    console.log('🔥 Warming up cache from external storage...')
     
-    // Check Redis connection first
-    if (redisService.isConnected()) {
-      console.log('✅ Redis connected, checking for existing cache...')
-      const existingCache = await redisService.getOpportunityZoneCache()
-      
-      if (existingCache) {
-        console.log('📦 Found existing Redis cache, validating...')
-        const metrics = opportunityZoneService.getCacheMetrics()
-        
-        // If memory cache is not initialized or has different version, force refresh
-        if (!metrics.isInitialized || metrics.dataHash !== existingCache.metadata.dataHash) {
-          console.log('🔄 Cache version mismatch, forcing refresh...')
-          await opportunityZoneService.forceRefresh()
-        } else {
-          console.log('✅ Cache is up to date')
-        }
-      } else {
-        console.log('🆕 No existing cache found, initializing...')
-        await opportunityZoneService.forceRefresh()
-      }
-    } else {
-      console.log('⚠️ Redis not connected, initializing memory cache only...')
-      await opportunityZoneService.forceRefresh()
-    }
+    // Initialize the opportunity zone service (loads from external storage)
+    await opportunityZoneService.initialize()
 
     // Verify cache state after warming
     const metrics = opportunityZoneService.getCacheMetrics()
@@ -67,7 +44,7 @@ async function warmCache(retries = 0, maxRetries: number, retryDelay: number): P
 
 export async function initializeServer(options: InitOptions = {}): Promise<void> {
   const opts = { ...DEFAULT_OPTIONS, ...options }
-  console.log('🚀 Initializing server...')
+  console.log('🚀 Initializing server with external storage...')
 
   try {
     if (!opts.skipCacheWarm) {
