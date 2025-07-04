@@ -100,6 +100,16 @@ export async function checkAddressInOpportunityZone(address: string): Promise<Ch
       log("success", `🏁 Opportunity zone check result: ${result.isInZone ? "YES - In Zone" : "NO - Not in Zone"}`);
       return { isInZone: result.isInZone, logs };
     } catch (error) {
+      // Handle service initialization errors
+      if (error instanceof Error && error.message.includes('Service is initializing')) {
+        log("warning", "⏳ Service is still loading opportunity zone data");
+        return {
+          isInZone: null,
+          error: "The service is still loading. Please wait a moment and try again.",
+          logs
+        };
+      }
+      
       // Handle rate limiting errors specifically
       if (error instanceof Error && error.message.includes('rate limit')) {
         log("error", "❌ Rate limit exceeded. Please try again in a moment.");
