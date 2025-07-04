@@ -43,12 +43,29 @@ export async function checkAddressInOpportunityZone(address: string): Promise<Ch
     const geocodeUrl = `https://geocode.maps.co/search?q=${encodeURIComponent(address)}&api_key=${apiKey}`;
     log("info", `🔗 Geocoding request initiated`);
     
-    const response = await fetch(geocodeUrl);
+    // Create abort controller for timeout
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 30000) // 30 second timeout
+    
+    let response: Response;
+    try {
+      response = await fetch(geocodeUrl, {
+        signal: controller.signal
+      });
 
-    if (!response.ok) {
-      const errorMessage = `❌ Geocoding failed: ${response.status} ${response.statusText}`;
-      log("error", errorMessage);
-      throw new Error("Failed to geocode address");
+      if (!response.ok) {
+        const errorMessage = `❌ Geocoding failed: ${response.status} ${response.statusText}`;
+        log("error", errorMessage);
+        throw new Error("Failed to geocode address");
+      }
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        log("error", "❌ Geocoding request timed out after 30 seconds");
+        throw new Error("Geocoding request timed out");
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
     }
 
     const data = (await response.json()) as GeocodeResponse[];

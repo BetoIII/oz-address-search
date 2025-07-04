@@ -66,23 +66,38 @@ class OpportunityZoneService {
     const url = 'https://pub-757ceba6f52a4399beb76c4667a53f08.r2.dev/oz-all.geojson'
     
     log("info", `🔗 Fetching opportunity zones data from external storage: ${url}`)
-    const response = await fetch(url, {
-      headers: {
-        'Cache-Control': 'no-cache' // Always fetch fresh data
-      }
-    })
-
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
-    }
-
-    const data = await response.json()
     
-    if (!data?.features?.length) {
-      throw new Error('Invalid GeoJSON format: missing features array')
-    }
+    // Create abort controller for timeout
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 45000) // 45 second timeout
+    
+    try {
+      const response = await fetch(url, {
+        headers: {
+          'Cache-Control': 'no-cache' // Always fetch fresh data
+        },
+        signal: controller.signal
+      })
 
-    return this.optimizeGeoJson(data)
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      const data = await response.json()
+      
+      if (!data?.features?.length) {
+        throw new Error('Invalid GeoJSON format: missing features array')
+      }
+
+      return this.optimizeGeoJson(data)
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new Error('Request timed out after 45 seconds')
+      }
+      throw error
+    } finally {
+      clearTimeout(timeout)
+    }
   }
 
   private optimizeGeoJson(geoJson: any) {
