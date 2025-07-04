@@ -73,6 +73,15 @@ class FeatureFlagConfig {
       };
     }
 
+    // Force disable MCP service to prevent 405 errors
+    // TODO: Remove this override once MCP endpoints are properly implemented
+    flags.USE_MCP_SERVICE = {
+      ...defaultFlags.USE_MCP_SERVICE,
+      enabled: false,
+      lastUpdated: new Date(),
+      updatedBy: 'system-override',
+    };
+
     return flags;
   }
 
