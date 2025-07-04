@@ -44,18 +44,21 @@ async function warmCache(retries = 0, maxRetries: number, retryDelay: number): P
 
 export async function initializeServer(options: InitOptions = {}): Promise<void> {
   const opts = { ...DEFAULT_OPTIONS, ...options }
-  console.log('🚀 Initializing server with external storage...')
+  console.log('🚀 Starting server initialization (non-blocking)...')
 
-  try {
-    if (!opts.skipCacheWarm) {
-      await warmCache(0, opts.maxRetries, opts.retryDelay)
-    } else {
-      console.log('⏩ Skipping cache warm-up')
-    }
-
-    console.log('✅ Server initialization completed')
-  } catch (error) {
-    console.error('❌ Server initialization failed:', error)
-    throw error
+  // Start cache warming in background without blocking server startup
+  if (!opts.skipCacheWarm) {
+    console.log('🔥 Starting cache warm-up in background...')
+    warmCache(0, opts.maxRetries, opts.retryDelay)
+      .then(() => {
+        console.log('✅ Background cache warm-up completed')
+      })
+      .catch((error) => {
+        console.error('❌ Background cache warm-up failed:', error)
+      })
+  } else {
+    console.log('⏩ Skipping cache warm-up')
   }
+
+  console.log('✅ Server initialization completed (cache warming in background)')
 } 
